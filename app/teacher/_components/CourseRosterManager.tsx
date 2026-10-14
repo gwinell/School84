@@ -102,6 +102,7 @@ export function CourseRosterManager({
       toast.success(data.message ?? `Добавлено: ${counts.created}; уже назначено: ${counts.alreadyAssigned}; не найдено: ${counts.invalid.length}`);
       setBulkMessage(counts.invalid.length ? `Не найдены: ${counts.invalid.join(", ")}` : `Добавлено ${counts.created}; уже были назначены ${counts.alreadyAssigned}.`);
       setBulkEmails("");
+      router.refresh();
     });
   }
 
@@ -114,6 +115,7 @@ export function CourseRosterManager({
         return;
       }
       toast.success(data.message ?? "Доступ к курсу снят");
+      router.refresh();
     });
   }
 
@@ -129,6 +131,7 @@ export function CourseRosterManager({
         return;
       }
       toast.success(data.message ?? "Срок обновлён");
+      router.refresh();
     });
   }
 
