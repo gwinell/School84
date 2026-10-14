@@ -6,6 +6,7 @@ This review records the DevOps branch checks for the school-tenancy integration.
 
 - GitHub Actions provisions a job-scoped `postgres:16-alpine` service with `school84`, matching the job `DATABASE_URL`.
 - CI creates a second database named `school84_tenant_test`; only the `pnpm test:tenant` step receives `TEST_TENANCY_DATABASE_URL` for that database. The tenant suite refuses any other database name and creates/drops only its random schema.
+- The explicit `pnpm test:security` subset includes teacher/course authorization plus organization action, isolation, and tenant-assignment regressions. The full `pnpm test` suite still runs all Node regression files.
 - `createdb` is available on the current GitHub `ubuntu-24.04` runner image. The database password is a test-only value; the service has no persistent volume.
 - `test:tenant` is supplied by the tenant-backend branch. Combine that branch with this DevOps branch before running the full workflow.
 
