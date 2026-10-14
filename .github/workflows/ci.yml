@@ -22,13 +22,13 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_DB: school84_tenant_test
+          POSTGRES_DB: school84
           POSTGRES_USER: school84
           POSTGRES_PASSWORD: ci-only-password
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U school84 -d school84_tenant_test"
+          --health-cmd "pg_isready -U school84 -d school84"
           --health-interval 5s
           --health-timeout 3s
           --health-retries 20
@@ -81,6 +81,11 @@ jobs:
 
       - name: Generate Prisma client
         run: pnpm exec prisma generate
+
+      - name: Create dedicated tenant test database
+        run: createdb --host=127.0.0.1 --port=5432 --username=school84 school84_tenant_test
+        env:
+          PGPASSWORD: ci-only-password
 
       - name: Run tenant migration and PostgreSQL isolation tests
         run: pnpm test:tenant
