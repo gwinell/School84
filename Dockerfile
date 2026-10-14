@@ -20,7 +20,9 @@ ENV DATABASE_URL=postgresql://school84:school84@localhost:5432/school84 \
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY prisma ./prisma
 COPY prisma.config.ts ./prisma.config.ts
-RUN pnpm install --frozen-lockfile
+# Keep the pnpm content-addressed store out of the committed build layer. The
+# installed node_modules remain, while avoiding a second copy of package data.
+RUN pnpm install --frozen-lockfile --store-dir=/tmp/pnpm-store && rm -rf /tmp/pnpm-store
 # Public config must match runtime; storage credentials are never build arguments.
 ARG BUILD_STORAGE_ENDPOINT=http://localhost:9000
 ARG BUILD_PUBLIC_IMAGES_BUCKET=school84-local

@@ -38,6 +38,8 @@ docker-compose up --build -d app python-runner
 docker-compose --profile local-admin run --rm local-admin
 ```
 
+This sequence is for a **new, empty local database only**. `schema-init` runs Prisma `db push`; never run it against an existing school database. The app and runner should be published only on a trusted machine: the runner has access to the Docker socket, and the default Compose values are demo credentials rather than production secrets. Keep the database port and app bound to loopback unless a separately reviewed production deployment adds TLS, a firewall, real authentication providers, email delivery, and secret management.
+
 On the local Docker login page, use **Войти как преподаватель** or **Войти как ученик** for one-click demo access. The demo accounts are `admin@school84.local` and `student@school84.local`; the learner has the Python course with sample progress and activity. This shortcut is enabled only in the local Docker profile. To disable it, set `DEMO_LOGIN_ENABLED=false`. Regular email OTP login remains available; codes are printed in app logs:
 
 ```bash
@@ -61,7 +63,61 @@ Stop the app while preserving the database:
 docker-compose down
 ```
 
-Never remove the database volume during an update. Before a release, save a PostgreSQL backup, retain the currently running app and runner image IDs, and validate a candidate on port 3002. Update only the app and runner after tests and security validation pass; confirm health and smoke flows, and restore the retained images if validation fails. Do not re-run local-admin or the seed importer during a release.
+### Back up, update, and roll back a local school
+
+Backups contain student and course data. Store them outside source control, restrict file permissions, and copy them to encrypted storage. Never commit a backup or `.env` file.
+
+```bash
+mkdir -p backups
+chmod 700 backups
+backup="backups/school84-$(date -u +%Y%m%dT%H%M%SZ).dump"
+docker-compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$backup"
+chmod 600 "$backup"
+docker-compose exec -T db pg_restore --list < "$backup" >/dev/null
+```
+
+For an application-only update, first pass the CI, authorization/security tests, and local candidate smoke checks. Take and verify the backup above. Save the currently running image ID under a rollback tag, then build and start the reviewed app image. These commands intentionally do not run schema sync, seed data, or delete the database volume:
+
+```bash
+old_image="$(docker inspect --format '{{.Image}}' school84-mvp-app-1)"
+docker image tag "$old_image" school84-mvp-app:rollback
+APP_IMAGE_TAG=release docker-compose build app
+APP_IMAGE_TAG=release docker-compose up --no-build -d app
+docker-compose ps
+node scripts/verify-local-deployment.cjs school84-mvp-app-1
+```
+
+If health or smoke checks fail, return to the retained app image, then inspect logs before retrying:
+
+```bash
+APP_IMAGE_TAG=rollback docker-compose up --no-build -d app
+docker-compose logs --tail=200 app
+```
+
+Do not overwrite the rollback tag until the release has been accepted and a new backup has been verified. Test a backup by restoring it into an empty temporary database first:
+
+```bash
+docker-compose exec -T db sh -c 'createdb -U "$POSTGRES_USER" school84_restore_check'
+docker-compose exec -T db sh -c 'pg_restore -U "$POSTGRES_USER" -d school84_restore_check --exit-on-error' < "$backup"
+# After checking the restored data, remove only this temporary database.
+docker-compose exec -T db sh -c 'dropdb -U "$POSTGRES_USER" school84_restore_check'
+```
+
+To replace the active local database, take and verify another backup of its current state first, stop the app, and type the exact confirmation shown below. Then restore the selected archive and start the app again:
+
+```bash
+docker-compose exec -T db sh -c 'pg_restore --list' < "$backup" >/dev/null
+docker-compose stop app
+printf 'This replaces the active database. Type RESTORE school84 to continue: '
+read -r confirmation
+[ "$confirmation" = 'RESTORE school84' ] || { echo 'Restore cancelled'; exit 1; }
+docker-compose exec -T db sh -c 'dropdb -U "$POSTGRES_USER" --if-exists "$POSTGRES_DB"'
+docker-compose exec -T db sh -c 'createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'
+docker-compose exec -T db sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --exit-on-error' < "$backup"
+docker-compose up -d app
+```
+
+Do not use `docker-compose down -v` as a rollback or update step. Schema-changing releases need a reviewed, versioned migration and a rehearsed backup/restore plan; the current project has no migration history, so an existing school database must not be upgraded with `prisma db push`.
 
 ## Manual Node setup
 

@@ -19,6 +19,7 @@ services:
       retries: 20
 
   app:
+    image: school84-mvp-app:${APP_IMAGE_TAG:-local}
     build:
       context: .
       args:
