@@ -1,4 +1,5 @@
 import prisma from "@/lib/prisma";
+import { canManageCourse } from "@/lib/organization/access-policy";
 
 /** Shared authorization for course-scoped media endpoints. */
 export async function canAccessUploadCourse(input: {
@@ -8,21 +9,21 @@ export async function canAccessUploadCourse(input: {
 }): Promise<boolean> {
   if (!input.courseId) return input.role === "admin";
 
-  if (input.role !== "admin") {
-    if (input.role !== "teacher") return false;
-    const assignment = await prisma.courseInstructor.findUnique({
-      where: {
-        courseId_userId: { courseId: input.courseId, userId: input.userId },
-      },
-      select: { courseId: true },
-    });
-    if (!assignment) return false;
-  }
-
-  return Boolean(
-    await prisma.course.findUnique({
-      where: { id: input.courseId },
-      select: { id: true },
+  const course = await prisma.course.findUnique({
+    where: { id: input.courseId },
+    select: { id: true, organizationId: true },
+  });
+  if (!course) return false;
+  if (input.role === "admin") return true;
+  const [membership, instructor] = await Promise.all([
+    prisma.organizationMembership.findUnique({
+      where: { organizationId_userId: { organizationId: course.organizationId, userId: input.userId } },
+      select: { role: true },
     }),
-  );
+    prisma.courseInstructor.findUnique({
+      where: { courseId_userId: { courseId: course.id, userId: input.userId } },
+      select: { courseId: true },
+    }),
+  ]);
+  return canManageCourse({ userRole: input.role, membershipRole: membership?.role, isCourseInstructor: Boolean(instructor) });
 }

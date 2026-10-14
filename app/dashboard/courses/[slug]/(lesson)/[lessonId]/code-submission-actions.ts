@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { requireUser } from "@/app/data/user/require-user";
+import { getCourseLearnerAccess } from "@/app/data/user/course-learner-access";
 import { env } from "@/lib/env";
 import { canAccessAssignedLesson } from "@/lib/course-access";
 import prisma from "@/lib/prisma";
@@ -57,7 +58,7 @@ export async function submitCodeTaskAction(input: unknown): Promise<tApiResponse
         select: {
           chapter: {
             select: {
-              course: { select: { id: true, slug: true, status: true } },
+              course: { select: { id: true, slug: true, status: true, organizationId: true } },
             },
           },
         },
@@ -70,12 +71,9 @@ export async function submitCodeTaskAction(input: unknown): Promise<tApiResponse
   }
 
   const course = cell.lesson.chapter.course;
-  const enrollment = await prisma.enrollment.findUnique({
-    where: { userId_courseId: { userId: session.user.id, courseId: course.id } },
-    select: { status: true, accessMode: true },
-  });
   const isAdmin = session.user.role === "admin";
-  if (!isAdmin && (!enrollment || enrollment.status !== "Active")) {
+  const enrollment = await getCourseLearnerAccess({ userId: session.user.id, userRole: session.user.role, courseId: course.id, organizationId: course.organizationId });
+  if (!enrollment) {
     return errorResponse("Курс не назначен вашему аккаунту", null);
   }
   if (

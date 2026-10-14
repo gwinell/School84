@@ -77,6 +77,7 @@ export type tCourseForLearning = {
   id: string;
   title: string;
   slug: string;
+  organization: { id: string; name: string; slug: string; logoUrl: string | null; primaryColor: string | null };
   smallDesc: string;
   imageUrl: string | null;
   status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
@@ -125,9 +126,11 @@ async function signCellImages(textContent: string | null) {
 
 export async function getCourseForLearning({
   slug,
+  organizationSlug,
   currentLessonId,
 }: {
   slug: string;
+  organizationSlug?: string;
   /**
    * When set, only this lesson's video is signed. Signing every lesson's video
    * on every call is wasteful and hands out shareable URLs for the whole course.
@@ -136,12 +139,25 @@ export async function getCourseForLearning({
 }): Promise<tCourseForLearning> {
   const session = await requireUser();
 
-  const course = await prisma.course.findUnique({
-    where: { slug },
+  const courses = await prisma.course.findMany({
+    where: {
+      slug,
+      ...(session.user.role === "admin"
+        ? organizationSlug ? { organization: { slug: organizationSlug } } : {}
+        : {
+            organization: {
+              ...(organizationSlug ? { slug: organizationSlug } : {}),
+              memberships: { some: { userId: session.user.id, role: "STUDENT" } },
+            },
+            enrollment: { some: { userId: session.user.id, status: "Active" } },
+          }),
+    },
+    take: 2,
     select: {
       id: true,
       title: true,
       slug: true,
+      organization: { select: { id: true, name: true, slug: true, logoUrl: true, primaryColor: true } },
       smallDesc: true,
       fileKey: true,
       status: true,
@@ -217,6 +233,7 @@ export async function getCourseForLearning({
       },
     },
   });
+  const course = courses.length === 1 ? courses[0] : null;
 
   if (!course || course.status !== "PUBLISHED") {
     notFound();
@@ -313,6 +330,7 @@ export async function getCourseForLearning({
     id: course.id,
     title: course.title,
     slug: course.slug,
+    organization: course.organization,
     smallDesc: course.smallDesc,
     imageUrl,
     status: course.status,

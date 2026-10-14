@@ -10,6 +10,7 @@ import { checkIfCourseBought } from "@/app/data/user/user-is-enrolled";
 import { getOptionalSession } from "@/app/(public)/_lib/get-optional-session";
 import { REVIEW_PAGE_SIZE } from "@/lib/constants/reviews";
 import prisma from "@/lib/prisma";
+import { publicCourseHref } from "@/lib/organization/course-links";
 import { CoverImage } from "./_components/CoverImage";
 import { CourseCurriculum } from "./_components/CourseCurriculum";
 import { CourseHeader } from "./_components/CourseHeader";
@@ -19,15 +20,15 @@ import { CourseSummaryCard } from "./_components/CourseSummaryCard";
 import { DescriptionSection } from "./_components/DescriptionSection";
 
 interface CoursePageProps {
-  params: Promise<{ slug: string }>;
+  params: Promise<{ slug: string; organizationSlug?: string }>;
 }
 
 export async function generateMetadata({
   params,
 }: CoursePageProps): Promise<Metadata> {
-  const { slug } = await params;
-  const course = await getCourseBySlug(slug);
-  const path = `/courses/${course.slug}`;
+  const { slug, organizationSlug } = await params;
+  const course = await getCourseBySlug(slug, organizationSlug);
+  const path = publicCourseHref(course.organization.slug, course.slug);
   return {
     title: `${course.title} | KnowSphere`,
     description: course.smallDesc,
@@ -42,8 +43,8 @@ export async function generateMetadata({
 }
 
 export default async function CourseDetailPage({ params }: CoursePageProps) {
-  const { slug } = await params;
-  const course = await getCourseBySlug(slug);
+  const { slug, organizationSlug } = await params;
+  const course = await getCourseBySlug(slug, organizationSlug);
 
   const session = await getOptionalSession();
   const currentUserId = session?.user?.id ?? null;
@@ -154,6 +155,7 @@ export default async function CourseDetailPage({ params }: CoursePageProps) {
             course={course}
             totalLessons={totalLessons}
             slug={slug}
+            organizationSlug={course.organization.slug}
             isEnrolled={isEnrolled}
             isSignedIn={isSignedIn}
             ratingAvg={aggregate.avg}

@@ -10,20 +10,31 @@ export async function adminGetTeachingCourses() {
   return prisma.course.findMany({
     where: session.user.role === "admin"
       ? undefined
-      : { instructors: { some: { userId: session.user.id } } },
+      : {
+          OR: [
+            {
+              instructors: { some: { userId: session.user.id } },
+              organization: { is: { memberships: { some: { userId: session.user.id, role: "TEACHER" } } } },
+            },
+            { organization: { is: { memberships: { some: { userId: session.user.id, role: { in: ["OWNER", "ADMIN"] } } } } } },
+          ],
+        },
     orderBy: { updatedAt: "desc" },
-    select: { id: true, title: true, slug: true, status: true },
+    select: { id: true, title: true, slug: true, status: true, organization: { select: { id: true, name: true, slug: true, logoUrl: true, primaryColor: true } } },
   });
 }
 
 export async function getCourseGradebook(courseId: string) {
-  await requireCourseTeacher(courseId);
+  const { course: authorizedCourse } = await requireCourseTeacher(courseId);
   const course = await prisma.course.findUniqueOrThrow({
     where: { id: courseId },
     select: {
       id: true,
       title: true,
-      instructors: { select: { user: { select: { id: true, name: true, email: true } } } },
+      instructors: {
+        where: { user: { organizationMemberships: { some: { organizationId: authorizedCourse.organizationId, role: "TEACHER" } } } },
+        select: { user: { select: { id: true, name: true, email: true } } },
+      },
       enrollment: {
         orderBy: { createdAt: "desc" },
         select: {
@@ -81,9 +92,19 @@ function safeSelectedAnswers(value: unknown): Array<{ questionId: string; questi
     : []);
 }
 
-export async function getAssignableTeachers() {
+export async function getAssignableTeachers(courseId?: string) {
   const session = await requireTeacher();
-  if (session.user.role !== "admin") return [];
+  if (session.user.role !== "admin") {
+    if (!courseId) return [];
+    const { course } = await requireCourseTeacher(courseId);
+    const memberships = await prisma.organizationMembership.findMany({
+      where: { organizationId: course.organizationId, role: "TEACHER" },
+      orderBy: { createdAt: "asc" },
+      select: { user: { select: { id: true, name: true, email: true, role: true } } },
+    });
+    const assigned = new Set((await prisma.courseInstructor.findMany({ where: { courseId }, select: { userId: true } })).map((row) => row.userId));
+    return memberships.map(({ user }) => user).filter((user) => !assigned.has(user.id));
+  }
   return prisma.user.findMany({
     // BetterAuth creates regular accounts with role="user". Include those
     // candidates so admins can promote them when assigning a course teacher;
@@ -104,8 +125,9 @@ export async function getCourseInvitations(courseId: string) {
 
 export async function getCourseInstructors(courseId: string) {
   await requireCourseTeacher(courseId);
+  const { course } = await requireCourseTeacher(courseId);
   const rows = await prisma.courseInstructor.findMany({
-    where: { courseId }, orderBy: { createdAt: "asc" },
+    where: { courseId, user: { organizationMemberships: { some: { organizationId: course.organizationId, role: "TEACHER" } } } }, orderBy: { createdAt: "asc" },
     select: { user: { select: { id: true, name: true, email: true } } },
   });
   return rows.map(({ user }) => user);

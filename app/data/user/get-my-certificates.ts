@@ -18,6 +18,7 @@ export type tMyCertificate = {
     imageUrl: string | null;
     level: "BEGINNER" | "INTERMEDIATE" | "ADVANCED";
     duration: number;
+    organizationSlug: string;
   } | null;
 
   // Snapshot fields — kept for display if the live course goes away.
@@ -54,6 +55,7 @@ export async function getMyCertificates(): Promise<tMyCertificate[]> {
           fileKey: true,
           level: true,
           duration: true,
+          organization: { select: { slug: true } },
         },
       },
       user: { select: { showCertificatesPublicly: true } },
@@ -76,6 +78,7 @@ export async function getMyCertificates(): Promise<tMyCertificate[]> {
       imageUrl: imageUrls[i],
       level: row.course.level,
       duration: row.course.duration,
+      organizationSlug: row.course.organization.slug,
     },
     courseTitleSnapshot: row.courseTitleSnapshot,
     courseSlugSnapshot: row.courseSlugSnapshot,

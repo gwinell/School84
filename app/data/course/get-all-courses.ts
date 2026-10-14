@@ -21,6 +21,7 @@ export type tCourse = {
   priceCents: number;
   imageUrl: string | null;
   slug: string;
+  organization: { id: string; name: string; slug: string; logoUrl: string | null; primaryColor: string | null };
   createdAt: Date;
   updatedAt: Date;
   categories: { id: string; name: string; slug: string }[];
@@ -64,12 +65,14 @@ export async function getCoursesPage({
   sort = "newest",
   page = 1,
   pageSize = COURSE_CATALOG_PAGE_SIZE,
+  organizationSlug,
 }: {
   q?: string;
   level?: tCourseLevelFilter;
   sort?: tCourseSort;
   page?: number;
   pageSize?: number;
+  organizationSlug?: string;
 } = {}): Promise<tCourseCatalogPage> {
   const {
     page: safePage,
@@ -84,6 +87,7 @@ export async function getCoursesPage({
   const query = q.trim();
   const where: Prisma.CourseWhereInput = {
     status: "PUBLISHED",
+    ...(organizationSlug ? { organization: { slug: organizationSlug } } : {}),
     ...(level !== "All"
       ? { level: level.toUpperCase() as tCourseLevel }
       : {}),
@@ -114,6 +118,7 @@ export async function getCoursesPage({
         priceCents: true,
         fileKey: true,
         slug: true,
+        organization: { select: { id: true, name: true, slug: true, logoUrl: true, primaryColor: true } },
         createdAt: true,
         updatedAt: true,
         categories: {
@@ -167,6 +172,7 @@ export async function getCoursesPage({
       priceCents: course.priceCents,
       imageUrl: imageUrls[i],
       slug: course.slug,
+      organization: course.organization,
       createdAt: course.createdAt,
       updatedAt: course.updatedAt,
       categories: course.categories,

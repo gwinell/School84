@@ -28,6 +28,7 @@ function formatDuration(minutes: number): string {
 export function EnrolledCourseCard({ course }: EnrolledCourseCardProps) {
   const continueHref = getLearningLocationHref({
     slug: course.slug,
+    organizationSlug: course.organizationSlug,
     lessonId: course.resumeLessonId,
     cellId: (course as typeof course & { resumeCellId?: string | null }).resumeCellId,
   });
@@ -63,7 +64,7 @@ export function EnrolledCourseCard({ course }: EnrolledCourseCardProps) {
 
           <h3 className="line-clamp-2 text-lg font-semibold leading-tight tracking-tight">
             <Link
-              href={`/dashboard/courses/${course.slug}`}
+              href={getLearningLocationHref({ slug: course.slug, organizationSlug: course.organizationSlug })}
               className="transition-colors hover:text-primary hover:underline underline-offset-4"
             >
               {course.title}

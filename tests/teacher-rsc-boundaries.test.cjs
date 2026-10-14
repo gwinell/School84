@@ -12,6 +12,7 @@ const teacherPages = [
   'app/teacher/courses/[courseId]/edit/page.tsx',
   'app/teacher/courses/[courseId]/chapters/[chapterId]/page.tsx',
   'app/teacher/courses/[courseId]/chapters/[chapterId]/lessons/[lessonId]/page.tsx',
+  'app/teacher/courses/new/page.tsx',
 ];
 
 function parse(relativePath) {

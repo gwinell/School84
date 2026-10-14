@@ -38,6 +38,7 @@ function load(file, overrides = {}, globals = {}) {
       catch (error) { return { data: null, error }; }
     } },
     "@/lib/utils": { cn: (...values) => values.filter(Boolean).join(" ") },
+    "@/lib/organization/course-links": { dashboardCourseHref: (organizationSlug, slug, lessonId) => `/dashboard/schools/${encodeURIComponent(organizationSlug)}/courses/${encodeURIComponent(slug)}${lessonId ? `/${encodeURIComponent(lessonId)}` : ""}` },
     sonner: { toast: { error() {}, success() {} } },
     ...overrides,
   };
@@ -96,11 +97,14 @@ test("continue links resume at the saved lesson and cell safely", () => {
     target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS,
   } }).outputText;
   const exports = {};
-  vm.runInNewContext(code, { exports, encodeURIComponent });
-  assert.equal(exports.getLearningLocationHref({ slug: "math course", lessonId: "lesson/4", cellId: "cell 2" }),
-    "/dashboard/courses/math%20course/lesson%2F4?cellId=cell%202");
-  assert.equal(exports.getLearningLocationHref({ slug: "math", lessonId: null, cellId: null }),
-    "/dashboard/courses/math");
+  vm.runInNewContext(code, { exports, encodeURIComponent, require(name) {
+    if (name === "@/lib/organization/course-links") return { dashboardCourseHref: (org, slug, lesson) => `/dashboard/schools/${encodeURIComponent(org)}/courses/${encodeURIComponent(slug)}${lesson ? `/${encodeURIComponent(lesson)}` : ""}` };
+    throw new Error(`Unexpected import ${name}`);
+  } });
+  assert.equal(exports.getLearningLocationHref({ organizationSlug: "school A", slug: "math course", lessonId: "lesson/4", cellId: "cell 2" }),
+    "/dashboard/schools/school%20A/courses/math%20course/lesson%2F4?cellId=cell%202");
+  assert.equal(exports.getLearningLocationHref({ organizationSlug: "school", slug: "math", lessonId: null, cellId: null }),
+    "/dashboard/schools/school/courses/math");
 });
 
 test("review form validates score and preserves feedback after a failed save", async () => {
@@ -282,7 +286,7 @@ test("switching quiz editor cells uses independent question form instances", () 
 test("learner cell navigation remounts state belonging to a different cell", async () => {
   const cells = ["a", "b"].map((id) => ({ id, status: "AVAILABLE", type: "CODE_TASK" }));
   const h = load(`${learner}/page.tsx`, {
-    "@/app/data/user/get-course-for-learning": { getCourseForLearning: async () => ({ courseChapters: [
+    "@/app/data/user/get-course-for-learning": { getCourseForLearning: async () => ({ organization: { slug: "school" }, courseChapters: [
       { title: "Chapter", lessons: [{ id: "lesson-a", isUnlocked: true, cells }] },
     ] }) },
   });

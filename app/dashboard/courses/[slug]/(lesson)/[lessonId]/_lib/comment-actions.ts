@@ -8,6 +8,7 @@ import { request } from "@arcjet/next";
 import prisma from "@/lib/prisma";
 import { errorResponse, successResponse } from "@/lib/responses";
 import { requireUser } from "@/app/data/user/require-user";
+import { getCourseLearnerAccess } from "@/app/data/user/course-learner-access";
 import { canAccessAssignedLesson } from "@/lib/course-access";
 import { getLessonComments } from "@/app/data/user/get-lesson-comments";
 import { getLessonReplies } from "@/app/data/user/get-lesson-replies";
@@ -48,7 +49,7 @@ async function getLessonContext(
       chapter: {
         select: {
           course: {
-            select: { id: true, slug: true },
+            select: { id: true, slug: true, organizationId: true },
           },
         },
       },
@@ -71,22 +72,13 @@ async function hasAccess(
 ): Promise<boolean> {
   const lesson = await prisma.lesson.findFirst({
     where: { id: lessonId, chapter: { courseId, course: { status: "PUBLISHED" } } },
-    select: { id: true },
+    select: { id: true, chapter: { select: { course: { select: { organizationId: true } } } } },
   });
   if (!lesson) return false;
   if (role === "admin") return true;
 
-  const enrollment = await prisma.enrollment.findUnique({
-    where: {
-      userId_courseId: {
-        userId,
-        courseId,
-      },
-    },
-    select: { status: true, accessMode: true },
-  });
-
-  if (enrollment?.status !== "Active") return false;
+  const enrollment = await getCourseLearnerAccess({ userId, userRole: role, courseId, organizationId: lesson.chapter.course.organizationId });
+  if (!enrollment) return false;
   return enrollment.accessMode !== "SEQUENTIAL" || canAccessAssignedLesson({ userId, courseId, lessonId });
 }
 

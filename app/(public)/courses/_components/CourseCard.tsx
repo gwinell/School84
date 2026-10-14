@@ -9,6 +9,7 @@ import { ClockIcon, GraduationCapIcon, PlayCircleIcon } from "lucide-react";
 import Link from "next/link";
 
 import { type tCourse } from "@/app/data/course/get-all-courses";
+import { publicCourseHref } from "@/lib/organization/course-links";
 
 interface CourseCardProps {
   course: tCourse;
@@ -36,7 +37,7 @@ export function CourseCard({ course, className }: CourseCardProps) {
 
   return (
     <Link
-      href={`/courses/${course.slug}`}
+      href={publicCourseHref(course.organization.slug, course.slug)}
       className={cn(
         "group flex flex-col overflow-hidden rounded-xl bg-card text-card-foreground border border-border shadow-xs transition-all duration-300 hover:-translate-y-1 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         className,

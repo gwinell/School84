@@ -6,13 +6,14 @@ import prisma from "@/lib/prisma";
 import { requireCourseTeacher } from "@/app/data/teacher/require-course-teacher";
 
 export async function adminGetCourseAssignments(courseId: string) {
-  await requireCourseTeacher(courseId);
+  const { course: authorizedCourse } = await requireCourseTeacher(courseId);
   const course = await prisma.course.findUnique({
     where: { id: courseId },
     select: {
       id: true,
       title: true,
       instructors: {
+        where: { user: { organizationMemberships: { some: { organizationId: authorizedCourse.organizationId, role: "TEACHER" } } } },
         orderBy: { createdAt: "asc" },
         select: { user: { select: { id: true, name: true, email: true } } },
       },
@@ -31,7 +32,10 @@ export async function adminGetCourseAssignments(courseId: string) {
   if (!course) notFound();
 
   const students = await prisma.user.findMany({
-    where: { OR: [{ role: null }, { role: { notIn: ["admin", "teacher"] } }] },
+    where: {
+      organizationMemberships: { some: { organizationId: authorizedCourse.organizationId, role: "STUDENT" } },
+      OR: [{ role: null }, { role: { notIn: ["admin", "teacher"] } }],
+    },
     orderBy: [{ name: "asc" }, { email: "asc" }],
     select: { id: true, name: true, email: true },
   });

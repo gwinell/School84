@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { tryCatch } from "@/hooks/try-catch";
+import { publicCourseHref } from "@/lib/organization/course-links";
 
 import {
   addToWishlistAction,
@@ -17,6 +18,7 @@ import {
 interface WishlistButtonProps {
   courseId: string;
   slug: string;
+  organizationSlug: string;
   isWishlisted: boolean;
   isSignedIn: boolean;
   isEnrolled: boolean;
@@ -26,6 +28,7 @@ interface WishlistButtonProps {
 export function WishlistButton({
   courseId,
   slug,
+  organizationSlug,
   isWishlisted,
   isSignedIn,
   isEnrolled,
@@ -47,7 +50,7 @@ export function WishlistButton({
         className={cn("w-full", className)}
         size="lg"
         nativeButton={false}
-        render={<Link href={`/login?redirect=/courses/${slug}`} />}
+        render={<Link href={`/login?redirect=${encodeURIComponent(publicCourseHref(organizationSlug, slug))}`} />}
       >
         <BookmarkIcon className="size-4" />
         Sign in to save

@@ -25,6 +25,7 @@ interface CertificateIssuedDialogProps {
   onOpenChange: (open: boolean) => void;
   verificationCode: string;
   courseSlug: string | null;
+  organizationSlug: string;
 }
 
 function CopyLinkButton({ url }: { url: string }) {
@@ -68,6 +69,7 @@ export function CertificateIssuedDialog({
   onOpenChange,
   verificationCode,
   courseSlug,
+  organizationSlug,
 }: CertificateIssuedDialogProps) {
   const fire = useConfetti();
   const publicUrl =
@@ -110,7 +112,7 @@ export function CertificateIssuedDialog({
                 type="button"
                 variant="ghost"
                 size="sm"
-                render={<Link href={`/dashboard/courses/${courseSlug}`} />}
+                render={<Link href={`/dashboard/schools/${encodeURIComponent(organizationSlug)}/courses/${encodeURIComponent(courseSlug)}`} />}
                 onClick={() => onOpenChange(false)}
               >
                 Back to course

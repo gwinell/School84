@@ -6,7 +6,7 @@ import { errorResponse, successResponse } from "@/lib/responses";
 import { type CourseSchemaType, courseSchema } from "@/lib/zodSchemas";
 import { deriveCourseSlug } from "@/lib/formatSlug";
 import { z } from "zod";
-import { requireAdmin } from "@/app/data/admin/require-admin";
+import { requireTeacher } from "@/app/data/teacher/require-teacher";
 import arcjet, { detectBot, fixedWindow } from "@/lib/arcjet";
 import { request } from "@arcjet/next";
 import { safeAdminLog } from "@/lib/activity/admin-log";
@@ -30,8 +30,8 @@ const aj = arcjet
     }),
   );
 
-export async function createCourse(values: CourseSchemaType) {
-  const session = await requireAdmin();
+export async function createCourse(values: CourseSchemaType, requestedOrganizationId?: string) {
+  const session = await requireTeacher();
 
   if (!session?.user?.id) {
     return errorResponse("Unauthorized", null);
@@ -58,8 +58,23 @@ export async function createCourse(values: CourseSchemaType) {
 
     const { categories: categoryNames, ...courseFields } = validatedData.data;
 
-    const slugTaken = await prisma.course.findUnique({
-      where: { slug: courseFields.slug },
+    const organizations = await prisma.organizationMembership.findMany({
+      where: { userId: session.user.id, role: { in: ["OWNER", "ADMIN"] } },
+      orderBy: { createdAt: "asc" },
+      select: { organizationId: true },
+    });
+    const organization = requestedOrganizationId
+      ? organizations.find((item) => item.organizationId === requestedOrganizationId)
+      : organizations.length === 1 ? organizations[0] : undefined;
+    if (!organization) {
+      return errorResponse(
+        organizations.length > 1 ? "Выберите школу, в которой будет создан курс" : "Сначала создайте школу или получите права администратора школы",
+        null,
+      );
+    }
+
+    const slugTaken = await prisma.course.findFirst({
+      where: { organizationId: organization.organizationId, slug: courseFields.slug },
       select: { id: true },
     });
     if (slugTaken) {
@@ -78,6 +93,7 @@ export async function createCourse(values: CourseSchemaType) {
           data: {
             ...courseFields,
             userId: session.user.id,
+            organizationId: organization.organizationId,
             stripePriceId: null,
             categories: {
               connect: categories.map((c) => ({ id: c.id })),

@@ -35,6 +35,7 @@ function load(file, overrides = {}, globals = {}) {
     '@/components/ui/input': { Input: 'Input' },
     '@/components/ui/textarea': { Textarea: 'Textarea' },
     '@/components/ui/card': { Card: 'Card', CardContent: 'CardContent', CardHeader: 'CardHeader', CardTitle: 'CardTitle' },
+    '@/lib/organization/course-links': { dashboardCourseHref: (organizationSlug, slug, lessonId) => `/dashboard/schools/${encodeURIComponent(organizationSlug)}/courses/${encodeURIComponent(slug)}${lessonId ? `/${encodeURIComponent(lessonId)}` : ''}` },
     '@/components/general/CourseImage': { CourseImage: 'CourseImage' },
     ...overrides,
   };
@@ -256,11 +257,11 @@ test('notification center marks only the selected notice read and refreshes the 
   });
   const tree = h.render('NotificationCenter', { notifications: [{
     id: 'notice-1', type: 'COURSE_DUE_SOON', title: 'Deadline soon', body: 'Course One is due.', readAt: null,
-    createdAt: '2026-10-14T10:00:00Z', courseId: 'course-1', course: { title: 'Course One', slug: 'course-one' },
+    createdAt: '2026-10-14T10:00:00Z', courseId: 'course-1', course: { title: 'Course One', slug: 'course-one', organization: { slug: 'school-one' } },
   }], onMarkRead: async (id) => { calls.push(id); return { status: 'success' }; } });
   find(tree, (node) => node.type === 'Button' && node.props['aria-label'] === 'Отметить прочитанным: Deadline soon').props.onClick();
   await h.flush();
   assert.deepEqual(calls, ['notice-1']);
   assert.equal(refreshes, 1);
-  assert.equal(find(tree, (node) => node.type === 'Link' && node.props.href === '/dashboard/courses/course-one').props.children, 'Course One');
+  assert.equal(find(tree, (node) => node.type === 'Link' && node.props.href === '/dashboard/schools/school-one/courses/course-one').props.children, 'Course One');
 });

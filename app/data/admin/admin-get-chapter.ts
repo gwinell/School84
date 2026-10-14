@@ -3,12 +3,11 @@ import "server-only";
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { requireTeacher } from "@/app/data/teacher/require-teacher";
+import { getManagedCourseIds } from "@/app/data/teacher/get-managed-course-ids";
 
 export async function adminGetChapter(chapterId: string) {
   const session = await requireTeacher();
-  const managedCourseIds = session.user.role === "admin"
-    ? null
-    : (await prisma.courseInstructor.findMany({ where: { userId: session.user.id }, select: { courseId: true } })).map((row) => row.courseId);
+  const managedCourseIds = await getManagedCourseIds(session.user.id, session.user.role);
   const chapter = await prisma.courseChapter.findFirst({
     where: { id: chapterId, ...(managedCourseIds ? { courseId: { in: managedCourseIds } } : {}) },
     select: {

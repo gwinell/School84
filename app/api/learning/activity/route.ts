@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireUser } from "@/app/data/user/require-user";
+import { getCourseLearnerAccess } from "@/app/data/user/course-learner-access";
 import arcjet, { fixedWindow } from "@/lib/arcjet";
 import { canAccessAssignedLesson } from "@/lib/course-access";
 import prisma from "@/lib/prisma";
@@ -28,7 +29,7 @@ export async function POST(request: Request) {
       id: true,
       type: true,
       lessonId: true,
-      lesson: { select: { chapter: { select: { course: { select: { id: true, status: true } } } } } },
+      lesson: { select: { chapter: { select: { course: { select: { id: true, status: true, organizationId: true } } } } } },
     },
   });
   if (!cell || cell.lesson.chapter.course.status !== "PUBLISHED") {
@@ -40,14 +41,9 @@ export async function POST(request: Request) {
 
   const courseId = cell.lesson.chapter.course.id;
   const isAdmin = session.user.role === "admin";
+  const enrollment = await getCourseLearnerAccess({ userId: session.user.id, userRole: session.user.role, courseId, organizationId: cell.lesson.chapter.course.organizationId });
+  if (!enrollment) return NextResponse.json({ error: "Course not assigned" }, { status: 403 });
   if (!isAdmin) {
-    const enrollment = await prisma.enrollment.findUnique({
-      where: { userId_courseId: { userId: session.user.id, courseId } },
-      select: { status: true, accessMode: true },
-    });
-    if (!enrollment || enrollment.status !== "Active") {
-      return NextResponse.json({ error: "Course not assigned" }, { status: 403 });
-    }
     if (enrollment.accessMode === "SEQUENTIAL" && !(await canAccessAssignedLesson({
       userId: session.user.id,
       courseId,

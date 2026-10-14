@@ -19,7 +19,7 @@ export default async function TeacherCoursePage({ params }: { params: Promise<{ 
     requireCourseTeacher(courseId),
     getCourseGradebook(courseId),
     getCourseInvitations(courseId),
-    session.user.role === "admin" ? getAssignableTeachers() : Promise.resolve([]),
+    getAssignableTeachers(courseId),
     getCourseInstructors(courseId),
   ]);
   const enrollments = gradebook.students.map((student) => ({
