@@ -52,9 +52,9 @@ export default function PrivacyPage() {
       <h2>4. Third-Party Services</h2>
       <p>
         We rely on trusted third-party service providers to operate the
-        Service. These include payment processors (such as Stripe), email
-        delivery providers (such as Resend), cloud hosting providers (such
-        as AWS), authentication providers (such as GitHub), and analytics
+        Service. These include email delivery providers (such as Resend),
+        cloud hosting providers (such as AWS), authentication providers
+        (such as GitHub), and analytics
         platforms. Each provider receives only the information necessary to
         perform their services and is contractually obligated to protect your
         data in accordance with industry standards.

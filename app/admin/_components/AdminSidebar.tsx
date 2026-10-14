@@ -6,14 +6,10 @@ import { usePathname } from "next/navigation";
 import {
   LayersIcon,
   PlusCircleIcon,
-  SettingsIcon,
   LayoutDashboardIcon,
   BookCheckIcon,
-  FolderIcon,
   HistoryIcon,
   MessageCircleIcon,
-  MessageCircleQuestionMarkIcon,
-  StarIcon,
   TagIcon,
 } from "lucide-react";
 
@@ -58,16 +54,6 @@ export function AdminSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
       icon: <TagIcon size={16} />,
     },
     {
-      title: "Reviews",
-      url: "/admin/reviews",
-      icon: <StarIcon size={16} />,
-    },
-    {
-      title: "Projects",
-      url: "/admin/projects",
-      icon: <FolderIcon size={16} />,
-    },
-    {
       title: "Activity",
       url: "/admin/activity",
       icon: <HistoryIcon size={16} />,
@@ -79,18 +65,7 @@ export function AdminSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
     },
   ];
 
-  const navSecondary = [
-    {
-      title: "Settings",
-      url: "/admin/settings",
-      icon: <SettingsIcon size={16} />,
-    },
-    {
-      title: "Get Help",
-      url: "#",
-      icon: <MessageCircleQuestionMarkIcon size={16} />,
-    },
-  ];
+  const navSecondary: IItems[] = [];
 
   return (
     <Sidebar collapsible="icon" {...props}>

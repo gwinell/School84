@@ -22,9 +22,10 @@ import { gradeQuizAnswerAction, type tQuizGrade } from "../quiz-actions";
 
 interface QuizPlayerProps {
   quiz: tUserLessonQuiz;
+  onPassed?: () => void;
 }
 
-export function QuizPlayer({ quiz }: QuizPlayerProps) {
+export function QuizPlayer({ quiz, onPassed }: QuizPlayerProps) {
   const [selections, setSelections] = useState<Record<string, Set<string>>>(
     {},
   );
@@ -90,6 +91,7 @@ export function QuizPlayer({ quiz }: QuizPlayerProps) {
   function advance() {
     if (isLast) {
       setFinished(true);
+      if (correctCount === totalQuestions) onPassed?.();
       return;
     }
     setStep((s) => s + 1);

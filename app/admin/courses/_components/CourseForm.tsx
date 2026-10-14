@@ -382,39 +382,6 @@ export function CourseForm({
                 )}
               />
 
-              <Controller
-                name="priceCents"
-                control={form.control}
-                render={({ field, fieldState }) => (
-                  <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor="price">Price</FieldLabel>
-                    <Input
-                      {...field}
-                      id="price"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      placeholder="0.00"
-                      aria-invalid={fieldState.invalid}
-                      value={
-                        field.value ? String(Number(field.value) / 100) : ""
-                      }
-                      onChange={(e) => {
-                        const dollars = e.target.valueAsNumber;
-                        field.onChange(
-                          Number.isNaN(dollars) ? 0 : Math.round(dollars * 100),
-                        );
-                      }}
-                    />
-                    <FieldDescription>
-                      Course price in dollars (minimum 0)
-                    </FieldDescription>
-                    {fieldState.invalid && (
-                      <FieldError errors={[fieldState.error]} />
-                    )}
-                  </Field>
-                )}
-              />
             </div>
 
             {/* Status */}

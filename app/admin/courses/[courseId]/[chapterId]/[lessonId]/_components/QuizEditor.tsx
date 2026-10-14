@@ -3,7 +3,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { DragDropProvider } from "@dnd-kit/react";
 import { isSortable } from "@dnd-kit/react/sortable";
-import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { FormProvider, useFieldArray, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
@@ -29,7 +28,7 @@ import type { TAdminGetLessonQuiz } from "@/app/data/admin/admin-get-lesson-quiz
 import { SortableQuestionCard } from "./SortableQuestionCard";
 
 interface iAppProps {
-  lessonId: string;
+  cellId: string;
   initialQuiz: TAdminGetLessonQuiz | null;
 }
 
@@ -58,10 +57,9 @@ function buildDefaultValues(
 }
 
 export function QuizEditor({
-  lessonId,
+  cellId,
   initialQuiz,
 }: iAppProps) {
-  const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
   const form = useForm<QuizFormValues>({
@@ -83,7 +81,7 @@ export function QuizEditor({
   const onSubmit = (values: QuizFormValues) => {
     startTransition(async () => {
       const { data: result, error } = await tryCatch(
-        upsertLessonQuiz(lessonId, values),
+        upsertLessonQuiz(cellId, values),
       );
 
       if (error) {
@@ -92,10 +90,37 @@ export function QuizEditor({
       }
 
       if (result?.status === "success") {
+        const savedQuiz = result.data as {
+          questions: {
+            id: string;
+            text: string;
+            type: EQuizQuestionType;
+            answers: {
+              id: string;
+              text: string;
+              isCorrect: boolean;
+              explanation: string | null;
+            }[];
+          }[];
+        } | null;
+        if (savedQuiz) {
+          form.reset({
+            questions: savedQuiz.questions.map((question) => ({
+              id: question.id,
+              text: question.text,
+              type: question.type as EQuizQuestionType,
+              answers: question.answers.map((answer) => ({
+                id: answer.id,
+                text: answer.text,
+                isCorrect: answer.isCorrect,
+                explanation: answer.explanation ?? "",
+              })),
+            })),
+          });
+        }
         toast.success("Quiz saved successfully!", {
           description: "Your quiz has been updated.",
         });
-        router.refresh();
       } else if (result?.status === "error") {
         toast.error(result.message);
       }
@@ -132,7 +157,7 @@ export function QuizEditor({
     startTransition(async () => {
       const { data: result, error } = await tryCatch(
         reorderQuizQuestions({
-          lessonId,
+          cellId,
           questions: orderedIds,
         }),
       );
@@ -145,7 +170,7 @@ export function QuizEditor({
       if (result?.status === "error") {
         toast.error(result.message);
       } else {
-        router.refresh();
+        toast.success("Quiz order saved");
       }
     });
   };

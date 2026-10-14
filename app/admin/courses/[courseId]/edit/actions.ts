@@ -18,12 +18,6 @@ import arcjet, { detectBot, fixedWindow } from "@/lib/arcjet";
 import { request } from "@arcjet/next";
 import { revalidatePath } from "next/cache";
 import { adminLog, safeAdminLog } from "@/lib/activity/admin-log";
-import { htmlToPlainText } from "@/lib/plain-text";
-import {
-  revertCourseProduct,
-  syncCourseProduct,
-  type SyncCourseProductResult,
-} from "@/lib/stripe/course-product";
 import {
   buildCourseFieldChanges,
   snapshotCourse,
@@ -98,32 +92,12 @@ export async function updateCourse(courseId: string, values: CourseSchemaType) {
         level: true,
         status: true,
         fileKey: true,
-        stripePriceId: true,
         categories: { select: { name: true }, orderBy: { name: "asc" } },
       },
     });
 
     if (!before) {
       return errorResponse("Course not found", null);
-    }
-
-    const stripeDescription =
-      htmlToPlainText(courseFields.description) || courseFields.smallDesc.trim();
-
-    // Prices are immutable in Stripe, so only touch the product when an
-    // editable, checkout-visible field actually changed.
-    let stripeSync: SyncCourseProductResult | null = null;
-    if (
-      before.title !== courseFields.title ||
-      htmlToPlainText(before.description) !== stripeDescription ||
-      before.priceCents !== courseFields.priceCents
-    ) {
-      stripeSync = await syncCourseProduct({
-        currentPriceId: before.stripePriceId,
-        title: courseFields.title,
-        description: stripeDescription || undefined,
-        priceCents: courseFields.priceCents,
-      });
     }
 
     let course;
@@ -137,7 +111,7 @@ export async function updateCourse(courseId: string, values: CourseSchemaType) {
           where: { id: courseId },
           data: {
             ...courseFields,
-            ...(stripeSync ? { stripePriceId: stripeSync.priceId } : {}),
+            stripePriceId: null,
             categories: {
               set: categories.map((c) => ({ id: c.id })),
             },
@@ -153,11 +127,6 @@ export async function updateCourse(courseId: string, values: CourseSchemaType) {
         return updated;
       });
     } catch (err) {
-      // The DB write is the source of truth; roll Stripe back to the old price
-      // if it failed so Checkout can't charge the new amount.
-      if (stripeSync) {
-        await revertCourseProduct(stripeSync);
-      }
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
         err.code === "P2002"
@@ -399,6 +368,34 @@ export async function createChapter(values: ChapterSchemaType) {
     return successResponse("Chapter created successfully", null);
   } catch {
     return errorResponse("Failed to create chapter", null);
+  }
+}
+
+export async function updateChapter({
+  courseId,
+  chapterId,
+  title,
+}: {
+  courseId: string;
+  chapterId: string;
+  title: string;
+}) {
+  await requireAdmin();
+  const cleanTitle = title.trim();
+  if (cleanTitle.length < 3 || cleanTitle.length > 120) {
+    return errorResponse("Название главы должно содержать от 3 до 120 символов", null);
+  }
+  try {
+    const result = await prisma.courseChapter.updateMany({
+      where: { id: chapterId, courseId },
+      data: { title: cleanTitle },
+    });
+    if (!result.count) return errorResponse("Глава не найдена", null);
+    revalidatePath(`/admin/courses/${courseId}/edit`);
+    revalidatePath(`/admin/courses/${courseId}/chapters/${chapterId}`);
+    return successResponse("Глава сохранена", null);
+  } catch {
+    return errorResponse("Не удалось сохранить главу", null);
   }
 }
 

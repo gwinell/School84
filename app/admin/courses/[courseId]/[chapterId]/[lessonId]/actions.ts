@@ -135,34 +135,31 @@ export async function updateLesson(lessonId: string, values: LessonSchemaType) {
   }
 }
 
-async function findLessonContext(lessonId: string) {
-  const lesson = await prisma.lesson.findUnique({
-    where: { id: lessonId },
+async function findCellContext(cellId: string) {
+  const cell = await prisma.lessonCell.findUnique({
+    where: { id: cellId },
     select: {
-      id: true,
-      title: true,
-      chapterId: true,
-      chapter: {
+      lessonId: true,
+      lesson: {
         select: {
-          courseId: true,
+          title: true,
+          chapterId: true,
+          chapter: { select: { courseId: true } },
         },
       },
     },
   });
-
-  if (!lesson) {
-    return null;
-  }
-
+  if (!cell) return null;
   return {
-    courseId: lesson.chapter.courseId,
-    chapterId: lesson.chapterId,
-    lessonTitle: lesson.title,
+    courseId: cell.lesson.chapter.courseId,
+    chapterId: cell.lesson.chapterId,
+    lessonId: cell.lessonId,
+    lessonTitle: cell.lesson.title,
   };
 }
 
 export async function upsertLessonQuiz(
-  lessonId: string,
+  cellId: string,
   values: Omit<LessonQuizSchemaType, "lessonId">,
 ) {
   const session = await requireAdmin();
@@ -177,16 +174,13 @@ export async function upsertLessonQuiz(
       return errorResponse("Too many requests", null);
     }
 
-    const parsed = lessonQuizSchema.safeParse({
-      lessonId,
-      ...values,
-    });
+    const parsed = lessonQuizSchema.omit({ lessonId: true }).safeParse(values);
 
     if (!parsed.success) {
       return errorResponse("Invalid data", z.treeifyError(parsed.error));
     }
 
-    const ctx = await findLessonContext(lessonId);
+    const ctx = await findCellContext(cellId);
     if (!ctx) {
       return errorResponse("Lesson not found", null);
     }
@@ -194,7 +188,7 @@ export async function upsertLessonQuiz(
     const { questions } = parsed.data;
 
     const existingQuiz = await prisma.quiz.findUnique({
-      where: { lessonId },
+      where: { cellId },
       select: {
         id: true,
         questions: { select: { type: true } },
@@ -208,9 +202,9 @@ export async function upsertLessonQuiz(
 
     await prisma.$transaction(async (tx) => {
       const quiz = await tx.quiz.upsert({
-        where: { lessonId },
+        where: { cellId },
         update: {},
-        create: { lessonId },
+        create: { cellId },
         select: { id: true },
       });
 
@@ -262,7 +256,7 @@ export async function upsertLessonQuiz(
           metadata: {
             courseId: ctx.courseId,
             chapterId: ctx.chapterId,
-            lessonId,
+            lessonId: ctx.lessonId,
             fields: changedFields,
             ...(wasCreated ? { questionsCount: questions.length } : {}),
           },
@@ -271,18 +265,37 @@ export async function upsertLessonQuiz(
       );
     });
 
-    revalidatePath(
-      `/admin/courses/${ctx.courseId}/${ctx.chapterId}/${lessonId}`,
-    );
+    const savedQuiz = await prisma.quiz.findUnique({
+      where: { cellId },
+      select: {
+        questions: {
+          orderBy: { position: "asc" },
+          select: {
+            id: true,
+            text: true,
+            type: true,
+            answers: {
+              orderBy: { position: "asc" },
+              select: {
+                id: true,
+                text: true,
+                isCorrect: true,
+                explanation: true,
+              },
+            },
+          },
+        },
+      },
+    });
 
-    return successResponse("Quiz saved successfully", null);
+    return successResponse("Quiz saved successfully", savedQuiz);
   } catch {
     return errorResponse("Failed to save quiz", null);
   }
 }
 
 const reorderQuizQuestionsSchema = z.object({
-  lessonId: z.string().cuid(),
+  cellId: z.string().cuid(),
   questions: z.array(
     z.object({
       id: z.string().cuid(),
@@ -292,17 +305,17 @@ const reorderQuizQuestionsSchema = z.object({
 });
 
 interface iReorderQuizQuestionsProps {
-  lessonId: string;
+  cellId: string;
   questions: { id: string; position: number }[];
 }
 
 export async function reorderQuizQuestions({
-  lessonId,
+  cellId,
   questions,
 }: iReorderQuizQuestionsProps) {
   try {
     const parsed = reorderQuizQuestionsSchema.safeParse({
-      lessonId,
+      cellId,
       questions,
     });
 
@@ -312,13 +325,13 @@ export async function reorderQuizQuestions({
 
     await requireAdmin();
 
-    const ctx = await findLessonContext(lessonId);
+    const ctx = await findCellContext(cellId);
     if (!ctx) {
       return errorResponse("Lesson not found", null);
     }
 
     const quiz = await prisma.quiz.findUnique({
-      where: { lessonId },
+      where: { cellId },
       select: { id: true },
     });
 
@@ -357,10 +370,6 @@ export async function reorderQuizQuestions({
     );
 
     await prisma.$transaction([...tempUpdates, ...finalUpdates]);
-
-    revalidatePath(
-      `/admin/courses/${ctx.courseId}/${ctx.chapterId}/${lessonId}`,
-    );
 
     return successResponse("Questions reordered successfully", null);
   } catch {

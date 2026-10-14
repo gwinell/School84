@@ -2,7 +2,6 @@ import Link from "next/link";
 import {
   ChevronRightIcon,
   ClockIcon,
-  DollarSignIcon,
   GraduationCapIcon,
 } from "lucide-react";
 
@@ -10,7 +9,6 @@ import { CourseImage } from "@/components/general/CourseImage";
 import { EmptyState } from "@/components/general/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
-import { formatPrice } from "@/lib/format-price";
 import {
   Card,
   CardContent,
@@ -122,10 +120,6 @@ export function RecentCourses({ courses }: RecentCoursesProps) {
                       <span className="inline-flex items-center gap-1">
                         <ClockIcon className="size-3" aria-hidden />
                         {formatDuration(course.duration)}
-                      </span>
-                      <span className="inline-flex items-center gap-1">
-                        <DollarSignIcon className="size-3" aria-hidden />
-                        {formatPrice(course.priceCents)}
                       </span>
                     </div>
                   </div>

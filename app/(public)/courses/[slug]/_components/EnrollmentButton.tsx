@@ -74,12 +74,6 @@ export function EnrollmentButton({
         return;
       }
 
-      if (result.data?.checkoutUrl) {
-        window.location.href = result.data.checkoutUrl;
-        return;
-      }
-
-      // Free course activated server-side -- re-render to swap the button state.
       toast.success(result.message);
       router.refresh();
     });

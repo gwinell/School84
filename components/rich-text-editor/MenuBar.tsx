@@ -10,6 +10,7 @@ import {
   Heading1Icon,
   Heading2Icon,
   Heading3Icon,
+  ImagePlusIcon,
   ItalicIcon,
   ListIcon,
   ListOrderedIcon,
@@ -60,6 +61,7 @@ export interface MenuBarState {
 interface MenuBarProps {
   editor: Editor | null;
   state: MenuBarState;
+  onImageClick?: () => void;
 }
 
 interface ToggleItem {
@@ -78,7 +80,7 @@ interface ButtonItem {
   disabled: boolean;
 }
 
-export function MenuBar({ editor, state }: MenuBarProps) {
+export function MenuBar({ editor, state, onImageClick }: MenuBarProps) {
   const isMac = useIsMac();
   if (!editor) return null;
 
@@ -267,6 +269,21 @@ export function MenuBar({ editor, state }: MenuBarProps) {
       <div className="flex flex-wrap gap-1">
         {renderButtonGroup(historyItems)}
       </div>
+
+      {onImageClick ? (
+        <>
+          <div className="w-px h-6 bg-border mx-2" />
+          <Button
+            size="sm"
+            variant="outline"
+            type="button"
+            onClick={onImageClick}
+          >
+            <ImagePlusIcon />
+            <span className="hidden sm:inline">Добавить изображение</span>
+          </Button>
+        </>
+      ) : null}
     </div>
   );
 }

@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 
 import arcjet, { fixedWindow } from "@/lib/arcjet";
 import { request } from "@arcjet/next";
-import { issueCertificateIfEligible } from "@/lib/certificates/issue-certificate-if-eligible";
 import prisma from "@/lib/prisma";
 import { errorResponse, successResponse } from "@/lib/responses";
 import { type tApiResponse } from "@/types/api";
@@ -23,15 +22,10 @@ interface SetLessonCompletionInput {
   completed: boolean;
 }
 
-type SetLessonCompletionData = {
-  certificateJustIssued: boolean;
-  verificationCode: string | null;
-};
-
 export async function setLessonCompletionAction({
   lessonId,
   completed,
-}: SetLessonCompletionInput): Promise<tApiResponse<SetLessonCompletionData>> {
+}: SetLessonCompletionInput): Promise<tApiResponse<null>> {
   const session = await requireUser();
 
   try {
@@ -41,10 +35,7 @@ export async function setLessonCompletionAction({
     });
 
     if (decision.isDenied()) {
-      return errorResponse("Too many requests. Please try again later.", {
-        certificateJustIssued: false,
-        verificationCode: null,
-      });
+      return errorResponse("Too many requests. Please try again later.", null);
     }
 
     const lesson = await prisma.lesson.findUnique({
@@ -62,10 +53,7 @@ export async function setLessonCompletionAction({
     });
 
     if (!lesson) {
-      return errorResponse("Lesson not found", {
-        certificateJustIssued: false,
-        verificationCode: null,
-      });
+      return errorResponse("Lesson not found", null);
     }
 
     const { id: courseId, slug } = lesson.chapter.course;
@@ -81,10 +69,7 @@ export async function setLessonCompletionAction({
     });
 
     if (!enrollment || enrollment.status !== "Active") {
-      return errorResponse("You are not enrolled in this course", {
-        certificateJustIssued: false,
-        verificationCode: null,
-      });
+      return errorResponse("You are not enrolled in this course", null);
     }
 
     await prisma.lessonProgress.upsert({
@@ -104,34 +89,14 @@ export async function setLessonCompletionAction({
       },
     });
 
-    let certificateJustIssued = false;
-    let verificationCode: string | null = null;
-
-    if (completed) {
-      const result = await issueCertificateIfEligible({
-        userId: session.user.id,
-        courseId,
-      });
-
-      if (result.issued) {
-        certificateJustIssued = true;
-        verificationCode = result.verificationCode;
-      }
-    }
-
     revalidatePath(`/dashboard/courses/${slug}/${lessonId}`);
     revalidatePath(`/dashboard/courses/${slug}`);
     revalidatePath("/dashboard");
-    revalidatePath("/dashboard/certificates");
-
     return successResponse(
       completed ? "Lesson marked as completed" : "Lesson marked as incomplete",
-      { certificateJustIssued, verificationCode },
+      null,
     );
   } catch {
-    return errorResponse("Failed to update progress", {
-      certificateJustIssued: false,
-      verificationCode: null,
-    });
+    return errorResponse("Failed to update progress", null);
   }
 }

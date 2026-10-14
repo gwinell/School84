@@ -11,10 +11,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { formatPrice } from "@/lib/format-price";
 import {
   ClockIcon,
-  EyeIcon,
   GraduationCapIcon,
   MoreHorizontalIcon,
   PencilIcon,
@@ -78,12 +76,6 @@ export function AdminCourseCard({ course }: iAppProps) {
                 <PencilIcon />
                 Edit course
               </DropdownMenuItem>
-              <DropdownMenuItem
-                render={<Link href={`/courses/${course.slug}`} />}
-              >
-                <EyeIcon />
-                Preview
-              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 variant="destructive"
@@ -108,9 +100,6 @@ export function AdminCourseCard({ course }: iAppProps) {
             <ClockIcon className="size-2" />
             <span>{formatDuration(course.duration)}</span>
           </div>
-          <span className="text-sm font-semibold tabular-nums">
-            {formatPrice(course.priceCents)}
-          </span>
         </div>
       </div>
     </div>

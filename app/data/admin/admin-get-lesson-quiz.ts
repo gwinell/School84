@@ -4,16 +4,16 @@ import prisma from "@/lib/prisma";
 import { requireAdmin } from "./require-admin";
 
 type TAdminGetLessonQuizProps = {
-  lessonId: string;
+  cellId: string;
 };
 
 export async function adminGetLessonQuiz({
-  lessonId,
+  cellId,
 }: TAdminGetLessonQuizProps) {
   await requireAdmin();
 
   const quiz = await prisma.quiz.findUnique({
-    where: { lessonId },
+    where: { cellId },
     select: {
       id: true,
       questions: {

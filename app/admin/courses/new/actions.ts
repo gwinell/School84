@@ -10,11 +10,6 @@ import { requireAdmin } from "@/app/data/admin/require-admin";
 import arcjet, { detectBot, fixedWindow } from "@/lib/arcjet";
 import { request } from "@arcjet/next";
 import { safeAdminLog } from "@/lib/activity/admin-log";
-import { htmlToPlainText } from "@/lib/plain-text";
-import {
-  createCourseProduct,
-  deleteCourseProduct,
-} from "@/lib/stripe/course-product";
 import {
   CATEGORY_LIMIT_EXCEEDED,
   resolveCategories,
@@ -74,17 +69,6 @@ export async function createCourse(values: CourseSchemaType) {
       );
     }
 
-    const stripeDescription =
-      htmlToPlainText(courseFields.description) ||
-      courseFields.smallDesc.trim() ||
-      undefined;
-
-    const stripeProduct = await createCourseProduct({
-      title: courseFields.title,
-      description: stripeDescription,
-      priceCents: courseFields.priceCents,
-    });
-
     let course;
     try {
       course = await prisma.$transaction(async (tx) => {
@@ -94,7 +78,7 @@ export async function createCourse(values: CourseSchemaType) {
           data: {
             ...courseFields,
             userId: session.user.id,
-            stripePriceId: stripeProduct.priceId,
+            stripePriceId: null,
             categories: {
               connect: categories.map((c) => ({ id: c.id })),
             },
@@ -110,9 +94,6 @@ export async function createCourse(values: CourseSchemaType) {
         return created;
       });
     } catch (err) {
-      // The Stripe product was created before the DB write; if the write failed
-      // it would be orphaned, so clean it up best-effort.
-      await deleteCourseProduct(stripeProduct.productId);
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
         err.code === "P2002"
@@ -136,7 +117,6 @@ export async function createCourse(values: CourseSchemaType) {
       metadata: {
         status: course.status,
         level: course.level,
-        priceCents: course.priceCents,
         categories: categoryNames,
       },
     });

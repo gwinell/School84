@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 
 import prisma from "@/lib/prisma";
 import { getDownloadUrl } from "@/lib/s3/get-download-url";
+import { getSequentiallyUnlockedLessonIds } from "@/lib/course-access";
 import { requireUser } from "./require-user";
 
 export type tCourseForLearningLesson = {
@@ -13,6 +14,40 @@ export type tCourseForLearningLesson = {
   videoUrl: string | null;
   position: number;
   completed: boolean;
+  isUnlocked: boolean;
+  cells: tCourseForLearningCell[];
+};
+
+export type tCourseForLearningCell = {
+  id: string;
+  position: number;
+  type: "TEXT" | "CODE_TASK" | "QUIZ";
+  title: string | null;
+  status: "LOCKED" | "AVAILABLE" | "IN_PROGRESS" | "PASSED";
+  textContent: string | null;
+  taskPrompt: string | null;
+  starterCode: string | null;
+  examples: unknown;
+  latestSubmission: {
+    status: "ACCEPTED" | "WRONG_ANSWER" | "LINT_ERROR" | "RUNTIME_ERROR" | "TIME_LIMIT" | "SYSTEM_ERROR";
+    passedTests: number;
+    totalTests: number;
+    actualOutput: string | null;
+    errorText: string | null;
+    lintOutput: string | null;
+    durationMs: number;
+    sourceCode: string;
+    createdAt: Date;
+  } | null;
+  quiz: {
+    id: string;
+    questions: {
+      id: string;
+      text: string;
+      type: "SINGLE" | "MULTIPLE";
+      answers: { id: string; text: string }[];
+    }[];
+  } | null;
 };
 
 export type tCourseForLearningChapter = {
@@ -29,8 +64,45 @@ export type tCourseForLearning = {
   smallDesc: string;
   imageUrl: string | null;
   status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
+  accessMode: "ALL_AT_ONCE" | "SEQUENTIAL";
   courseChapters: tCourseForLearningChapter[];
 };
+
+async function signCellImages(textContent: string | null) {
+  if (!textContent) return textContent;
+  try {
+    const json = JSON.parse(textContent) as Record<string, unknown>;
+    const keys = new Set<string>();
+    const visit = (value: unknown) => {
+      if (!value || typeof value !== "object") return;
+      if (Array.isArray(value)) return value.forEach(visit);
+      const record = value as Record<string, unknown>;
+      const attrs = record.attrs as Record<string, unknown> | undefined;
+      if (typeof attrs?.key === "string") keys.add(attrs.key);
+      Object.values(record).forEach(visit);
+    };
+    visit(json);
+    const signed = new Map(
+      await Promise.all(
+        Array.from(keys, async (key) => [key, await getDownloadUrl(key)] as const),
+      ),
+    );
+    const apply = (value: unknown) => {
+      if (!value || typeof value !== "object") return;
+      if (Array.isArray(value)) return value.forEach(apply);
+      const record = value as Record<string, unknown>;
+      const attrs = record.attrs as Record<string, unknown> | undefined;
+      if (attrs && typeof attrs.key === "string") {
+        attrs.src = signed.get(attrs.key) ?? attrs.src;
+      }
+      Object.values(record).forEach(apply);
+    };
+    apply(json);
+    return JSON.stringify(json);
+  } catch {
+    return textContent;
+  }
+}
 
 export async function getCourseForLearning({
   slug,
@@ -72,6 +144,52 @@ export async function getCourseForLearning({
                 where: { userId: session.user.id },
                 select: { completed: true },
               },
+              cells: {
+                orderBy: { position: "asc" },
+                select: {
+                  id: true,
+                  position: true,
+                  type: true,
+                  title: true,
+                  textContent: true,
+                  taskPrompt: true,
+                  starterCode: true,
+                  examples: true,
+                  submissions: {
+                    where: { userId: session.user.id },
+                    orderBy: { createdAt: "desc" },
+                    take: 1,
+                    select: {
+                      status: true,
+                      passedTests: true,
+                      totalTests: true,
+                      actualOutput: true,
+                      errorText: true,
+                      lintOutput: true,
+                      durationMs: true,
+                      sourceCode: true,
+                      createdAt: true,
+                    },
+                  },
+                  quiz: {
+                    select: {
+                      id: true,
+                      questions: {
+                        orderBy: { position: "asc" },
+                        select: {
+                          id: true,
+                          text: true,
+                          type: true,
+                          answers: {
+                            orderBy: { position: "asc" },
+                            select: { id: true, text: true },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
             },
           },
         },
@@ -90,7 +208,7 @@ export async function getCourseForLearning({
         courseId: course.id,
       },
     },
-    select: { status: true },
+    select: { status: true, accessMode: true },
   });
 
   if (
@@ -99,6 +217,64 @@ export async function getCourseForLearning({
   ) {
     redirect(`/courses/${slug}`);
   }
+
+  const courseLessons = course.courseChapters.flatMap(
+    (chapter) => chapter.lessons,
+  );
+  const accessMode = enrollment?.accessMode ?? "ALL_AT_ONCE";
+  const courseCells = courseLessons.flatMap((lesson) => lesson.cells);
+
+  if (courseCells.length > 0) {
+    await prisma.lessonCellProgress.createMany({
+      data: courseLessons.flatMap((lesson) =>
+        lesson.cells.map((cell) => ({
+          userId: session.user.id,
+          lessonCellId: cell.id,
+          status: lesson.lessonProgress[0]?.completed
+            ? ("PASSED" as const)
+            : accessMode === "ALL_AT_ONCE" || lesson.id === courseLessons[0]?.id
+              ? ("AVAILABLE" as const)
+              : ("LOCKED" as const),
+          ...(lesson.lessonProgress[0]?.completed ? { passedAt: new Date() } : {}),
+        })),
+      ),
+      skipDuplicates: true,
+    });
+    const previouslyCompletedCellIds = courseLessons
+      .filter((lesson) => lesson.lessonProgress[0]?.completed)
+      .flatMap((lesson) => lesson.cells.map((cell) => cell.id));
+    if (previouslyCompletedCellIds.length > 0) {
+      await prisma.lessonCellProgress.updateMany({
+        where: {
+          userId: session.user.id,
+          lessonCellId: { in: previouslyCompletedCellIds },
+          status: { not: "PASSED" },
+        },
+        data: { status: "PASSED", passedAt: new Date() },
+      });
+    }
+  }
+
+  const cellProgress = await prisma.lessonCellProgress.findMany({
+    where: {
+      userId: session.user.id,
+      lessonCell: { lesson: { chapter: { courseId: course.id } } },
+    },
+    select: { lessonCellId: true, status: true },
+  });
+  const cellStatusById = new Map(
+    cellProgress.map((progress) => [progress.lessonCellId, progress.status]),
+  );
+
+  const unlockedLessonIds = accessMode === "ALL_AT_ONCE"
+    ? new Set(courseLessons.map((lesson) => lesson.id))
+    : getSequentiallyUnlockedLessonIds(
+        courseLessons.map((lesson) => ({
+          id: lesson.id,
+          cells: lesson.cells.map((cell) => ({ id: cell.id, type: cell.type })),
+        })),
+        cellStatusById,
+      );
 
   const lessons = course.courseChapters.flatMap((c) => c.lessons);
 
@@ -118,18 +294,39 @@ export async function getCourseForLearning({
     smallDesc: course.smallDesc,
     imageUrl,
     status: course.status,
-    courseChapters: course.courseChapters.map((chapter) => ({
+    accessMode,
+    courseChapters: await Promise.all(course.courseChapters.map(async (chapter) => ({
       id: chapter.id,
       title: chapter.title,
       position: chapter.position,
-      lessons: chapter.lessons.map((lesson) => ({
+      lessons: await Promise.all(chapter.lessons.map(async (lesson) => ({
         id: lesson.id,
         title: lesson.title,
         description: lesson.description,
         videoUrl: lesson.id === currentLessonId ? currentVideoUrl : null,
         position: lesson.position,
         completed: lesson.lessonProgress[0]?.completed ?? false,
-      })),
-    })),
+        isUnlocked: unlockedLessonIds.has(lesson.id),
+        cells: await Promise.all(lesson.cells.map(async (cell) => ({
+          id: cell.id,
+          position: cell.position,
+          type: cell.type,
+          title: cell.title,
+          status: cellStatusById.get(cell.id) === "PASSED"
+            ? "PASSED"
+            : unlockedLessonIds.has(lesson.id)
+              ? (cellStatusById.get(cell.id) === "IN_PROGRESS" ? "IN_PROGRESS" : "AVAILABLE")
+              : "LOCKED",
+          textContent: !unlockedLessonIds.has(lesson.id)
+            ? null
+            : await signCellImages(cell.textContent),
+          taskPrompt: !unlockedLessonIds.has(lesson.id) ? null : cell.taskPrompt,
+          starterCode: !unlockedLessonIds.has(lesson.id) ? null : cell.starterCode,
+          examples: !unlockedLessonIds.has(lesson.id) ? null : cell.examples,
+          latestSubmission: !unlockedLessonIds.has(lesson.id) ? null : cell.submissions[0] ?? null,
+          quiz: !unlockedLessonIds.has(lesson.id) ? null : cell.quiz,
+        }))),
+      }))),
+    }))),
   };
 }

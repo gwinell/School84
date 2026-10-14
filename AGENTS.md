@@ -5,7 +5,7 @@ Notes for OpenCode sessions working in this repo.
 ## Tooling
 
 - Package manager is **pnpm** (`pnpm-lock.yaml`, `pnpm-workspace.yaml`). Do not use npm/yarn.
-- Scripts (`package.json`): `dev`, `build`, `start`, `lint`, `typecheck` (`tsc --noEmit`), `stripe:listen` (forwards to `localhost:3000/api/webhook/stripe`). There is **no** `test` or `format` script — invoke other binaries directly (e.g. `pnpm exec prisma generate`).
+- Scripts (`package.json`): `dev`, `build`, `start`, `lint`, `typecheck` (`tsc --noEmit`). There is **no** `test` or `format` script — invoke other binaries directly (e.g. `pnpm exec prisma generate`).
 - `postinstall` runs `prisma generate` automatically, so `lib/generated/prisma/` is populated after a fresh `pnpm install`. Re-run it manually after any `prisma/schema.prisma` change.
 - After edits, verify with `pnpm lint` then `pnpm typecheck`. No test suite exists; do not invent a runner without asking.
 - Path alias: `@/*` -> repo root (`tsconfig.json`).
@@ -24,7 +24,7 @@ Notes for OpenCode sessions working in this repo.
 ## Environment / env validation
 
 - All env vars are validated at build/runtime by `@t3-oss/env-nextjs` in `lib/env.ts` (zod). Missing/invalid vars fail fast — edit `lib/env.ts` when adding a var, do not read `process.env` directly in app code. (Update both `server` and the `experimental__runtimeEnv` map for client vars.)
-- Required server vars (also listed in `.env.example`): `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `RESEND_API_KEY`, `EMAIL_FROM`, `ARCJET_KEY`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL_S3`, `AWS_REGION`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`. Only the `NEXT_PUBLIC_*` (`NEXT_PUBLIC_S3_BUCKET_NAME_IMAGES`) is exposed to the client.
+- Required server vars (also listed in `.env.example`): `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `RESEND_API_KEY`, `EMAIL_FROM`, `ARCJET_KEY`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL_S3`, `AWS_REGION`, and `PYTHON_RUNNER_TOKEN`. `PYTHON_RUNNER_URL` defaults to localhost. Only the `NEXT_PUBLIC_*` (`NEXT_PUBLIC_S3_BUCKET_NAME_IMAGES`) is exposed to the client.
 - `.env` is gitignored but required locally. `.env.example` exists and is the canonical template — copy it to `.env` and fill in real values.
 
 ## Auth & middleware gotcha
@@ -40,7 +40,7 @@ Notes for OpenCode sessions working in this repo.
 
 - App Router. Route groups: `app/(auth)/` (login, verify-request), `app/(public)/` (landing: home, `/courses`, `/courses/[slug]`, `/contact`, `/terms`, `/privacy`, `/license`, `/payment/{success,cancel}`, `/certificates/[code]`). Plain folders: `app/admin/` (dashboard, courses, projects, contact-messages) and `app/not-admin/`.
 - Admin layout (`app/admin/layout.tsx`) wraps everything under `/admin` with the shadcn sidebar/header in `app/admin/_components/`.
-- API routes: `app/api/auth/[...all]` (better-auth), `app/api/s3/upload` and `app/api/s3/delete` (presigned Tigris uploads), `app/api/webhook/stripe/route.ts` (Stripe checkout completion; forwards via `pnpm stripe:listen` in dev), `app/api/admin/activity/export/route.ts` (CSV export of admin activity log).
+- API routes: `app/api/auth/[...all]` (better-auth), `app/api/s3/upload` and `app/api/s3/delete` (presigned Tigris uploads), `app/api/admin/activity/export/route.ts` (CSV export of admin activity log). The public course store and payment routes are disabled; course access will be managed by administrators.
 - Default to **server components**; only add `"use client"` when you need state, effects, or browser-only APIs. Pair client-only subtrees with a server parent that passes plain props (see the FAQ pattern: `FAQ.tsx` server + `FaqList.tsx` client).
 
 ## Data fetchers & auth helpers

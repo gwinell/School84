@@ -43,7 +43,7 @@ export function EditCourseForm({
       pendingLabel="Saving..."
       successVerb="updated"
       successDescription="Your course has been updated."
-      redirectTo="/admin/courses"
+      redirectTo={`/admin/courses/${courseId}/edit`}
       showReset={false}
       existingImageUrl={course.imageUrl}
       existingImageKey={course.fileKey}

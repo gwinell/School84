@@ -81,7 +81,7 @@ export function ProfileForm({ initialName, email, image }: ProfileFormProps) {
       <CardHeader>
         <CardTitle>Personal information</CardTitle>
         <CardDescription>
-          Update the name shown on your reviews and certificates.
+          Update the name and profile details on your account.
         </CardDescription>
       </CardHeader>
 

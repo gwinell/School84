@@ -18,24 +18,19 @@ import { Button } from "@/components/ui/button";
 import { tryCatch } from "@/hooks/try-catch";
 
 import { setLessonCompletionAction } from "../actions";
-import { CertificateIssuedDialog } from "./CertificateIssuedDialog";
 
 interface MarkCompleteButtonProps {
   lessonId: string;
   completed: boolean;
-  courseSlug: string;
 }
 
 export function MarkCompleteButton({
   lessonId,
   completed,
-  courseSlug,
 }: MarkCompleteButtonProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
-  const [issuedCode, setIssuedCode] = useState<string | null>(null);
-  const [dialogOpen, setDialogOpen] = useState(false);
 
   function runToggle(next: boolean) {
     startTransition(async () => {
@@ -57,10 +52,6 @@ export function MarkCompleteButton({
       setIsConfirmOpen(false);
       router.refresh();
 
-      if (result.data?.certificateJustIssued && result.data.verificationCode) {
-        setIssuedCode(result.data.verificationCode);
-        setDialogOpen(true);
-      }
     });
   }
 
@@ -81,14 +72,6 @@ export function MarkCompleteButton({
           Mark as completed
         </Button>
 
-        {issuedCode ? (
-          <CertificateIssuedDialog
-            open={dialogOpen}
-            onOpenChange={setDialogOpen}
-            verificationCode={issuedCode}
-            courseSlug={courseSlug}
-          />
-        ) : null}
       </>
     );
   }
@@ -141,14 +124,6 @@ export function MarkCompleteButton({
         </AlertDialogContent>
       </AlertDialog>
 
-      {issuedCode ? (
-        <CertificateIssuedDialog
-          open={dialogOpen}
-          onOpenChange={setDialogOpen}
-          verificationCode={issuedCode}
-          courseSlug={courseSlug}
-        />
-      ) : null}
     </>
   );
 }

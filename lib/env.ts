@@ -11,12 +11,15 @@ export const env = createEnv({
     RESEND_API_KEY: z.string().min(1),
     EMAIL_FROM: z.string().min(1),
     ARCJET_KEY: z.string().min(1),
+    ARCJET_ENABLED: z.enum(["true", "false"]).default("true"),
+    AUTH_EMAIL_MODE: z.enum(["resend", "console"]).default("resend"),
+    DEMO_LOGIN_ENABLED: z.enum(["true", "false"]).default("false"),
     AWS_ACCESS_KEY_ID: z.string().min(1),
     AWS_SECRET_ACCESS_KEY: z.string().min(1),
     AWS_ENDPOINT_URL_S3: z.url(),
     AWS_REGION: z.string().min(1),
-    STRIPE_SECRET_KEY: z.string().min(1),
-    STRIPE_WEBHOOK_SECRET: z.string().min(1),
+    PYTHON_RUNNER_URL: z.url().default("http://127.0.0.1:8787"),
+    PYTHON_RUNNER_TOKEN: z.string().min(24),
   },
 
   client: {

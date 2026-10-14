@@ -1,6 +1,7 @@
 "use server";
 
 import { requireUser } from "@/app/data/user/require-user";
+import { canAccessAssignedLesson } from "@/lib/course-access";
 import prisma from "@/lib/prisma";
 
 export type tQuizGrade = {
@@ -33,10 +34,26 @@ export async function gradeQuizAnswerAction({
         select: {
           lesson: {
             select: {
+              id: true,
               chapter: {
                 select: {
                   courseId: true,
                   course: { select: { status: true } },
+                },
+              },
+            },
+          },
+          cell: {
+            select: {
+              lesson: {
+                select: {
+                  id: true,
+                  chapter: {
+                    select: {
+                      courseId: true,
+                      course: { select: { status: true } },
+                    },
+                  },
                 },
               },
             },
@@ -51,7 +68,9 @@ export async function gradeQuizAnswerAction({
 
   if (!question) return null;
 
-  const chapter = question.quiz.lesson.chapter;
+  const lesson = question.quiz.lesson ?? question.quiz.cell?.lesson;
+  if (!lesson) return null;
+  const chapter = lesson.chapter;
   if (chapter.course.status !== "PUBLISHED") return null;
 
   if (session.user.role !== "admin") {
@@ -62,10 +81,20 @@ export async function gradeQuizAnswerAction({
           courseId: chapter.courseId,
         },
       },
-      select: { status: true },
+      select: { status: true, accessMode: true },
     });
 
     if (!enrollment || enrollment.status !== "Active") {
+      return null;
+    }
+    if (
+      enrollment.accessMode === "SEQUENTIAL" &&
+      !(await canAccessAssignedLesson({
+        userId: session.user.id,
+        courseId: chapter.courseId,
+        lessonId: lesson.id,
+      }))
+    ) {
       return null;
     }
   }

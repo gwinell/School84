@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import Logo from "@/public/logo.png";
 import { Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
@@ -15,7 +14,6 @@ import { cn } from "@/lib/utils";
 
 const menuItems = [
   { name: "Home", href: "/" },
-  { name: "Courses", href: "/courses" },
   { name: "Contact", href: "/contact" },
 ];
 
@@ -87,7 +85,7 @@ export const HeroHeader = () => {
             aria-label="home"
             className="flex shrink-0 items-center gap-2"
           >
-            <Image src={Logo} alt="KnowSphere Logo" className="size-9" />
+            <Image src="/logo.png" alt="KnowSphere Logo" className="size-9" width={36} height={36} />
             <span className="hidden text-xl font-bold tracking-tight lg:inline">
               KnowSphere
             </span>

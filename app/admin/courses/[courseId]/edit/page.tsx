@@ -1,51 +1,44 @@
 import { adminGetCourse } from "@/app/data/admin/admin-get-course";
 import { adminGetCategoryOptions } from "@/app/data/admin/admin-get-category-options";
+import { adminGetCourseAssignments } from "@/app/data/admin/admin-get-course-assignments";
 import { PageHeader } from "@/components/admin/page-header";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EditCourseForm } from "./_components/EditCourseForm";
 import { EditCourseStructureForm } from "./_components/EditCourseStructureForm";
-import NewChapterModal from "./_components/NewChapterModal";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { CourseAssignments } from "../_components/CourseAssignments";
 
 type Params = Promise<{ courseId: string }>;
 
 export default async function EditCoursePage({ params }: { params: Params }) {
   const { courseId } = await params;
-  const [course, categoryOptions] = await Promise.all([
+  const [course, categoryOptions, assignments] = await Promise.all([
     adminGetCourse(courseId),
     adminGetCategoryOptions(),
+    adminGetCourseAssignments(courseId),
   ]);
 
   return (
     <div>
       <PageHeader backHref="/admin/courses" title="Edit Course" />
 
-      <Tabs defaultValue="basic-info" className="w-full">
-        <TabsList className="w-full grid grid-cols-2">
-          <TabsTrigger value="basic-info">Basic Info</TabsTrigger>
-          <TabsTrigger value="course-structure">Course Structure</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="basic-info">
+      <div className="mx-auto max-w-5xl space-y-8">
+        <section className="space-y-3">
+          <h2 className="text-xl font-semibold">Настройки курса</h2>
           <EditCourseForm
             courseId={courseId}
             course={course}
             categoryOptions={categoryOptions}
           />
-        </TabsContent>
-
-        <TabsContent value="course-structure">
-          <Card>
-            <CardHeader className="flex items-center justify-between">
-              <CardTitle>Course Structure</CardTitle>
-              <NewChapterModal courseId={course.id} />
-            </CardHeader>
-            <CardContent>
-              <EditCourseStructureForm course={course} />
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+        </section>
+        <EditCourseStructureForm
+          key={course.courseChapters.map((chapter) => chapter.id + chapter.lessons.length).join(":")}
+          course={course}
+        />
+        <CourseAssignments
+          courseId={courseId}
+          students={assignments.students}
+          enrollments={assignments.enrollment}
+        />
+      </div>
     </div>
   );
 }

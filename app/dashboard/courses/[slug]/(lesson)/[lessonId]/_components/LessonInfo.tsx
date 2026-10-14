@@ -49,7 +49,6 @@ export function LessonInfo({
           <MarkCompleteButton
             lessonId={lessonId}
             completed={completed}
-            courseSlug={courseSlug}
           />
           <LessonNav
             courseSlug={courseSlug}

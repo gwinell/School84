@@ -4,12 +4,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ComponentProps, type ReactNode } from "react";
 import {
-  AwardIcon,
-  BookmarkIcon,
   GraduationCapIcon,
   LayersIcon,
   MessageCircleQuestionMarkIcon,
-  SettingsIcon,
   UserIcon,
 } from "lucide-react";
 
@@ -49,16 +46,6 @@ export function DashboardSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
       icon: <GraduationCapIcon size={16} />,
     },
     {
-      title: "Certificates",
-      url: "/dashboard/certificates",
-      icon: <AwardIcon size={16} />,
-    },
-    {
-      title: "Wishlist",
-      url: "/dashboard/wishlist",
-      icon: <BookmarkIcon size={16} />,
-    },
-    {
       title: "Profile",
       url: "/dashboard/profile",
       icon: <UserIcon size={16} />,
@@ -66,11 +53,6 @@ export function DashboardSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
   ];
 
   const navSecondary: IItems[] = [
-    {
-      title: "Settings",
-      url: "/dashboard/settings",
-      icon: <SettingsIcon size={16} />,
-    },
     {
       title: "Get Help",
       url: "/contact",

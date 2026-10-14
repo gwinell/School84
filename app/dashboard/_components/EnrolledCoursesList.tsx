@@ -1,8 +1,6 @@
-import Link from "next/link";
 import { BookOpenIcon } from "lucide-react";
 
 import { EmptyState } from "@/components/general/EmptyState";
-import { buttonVariants } from "@/components/ui/button";
 import type { tEnrolledCourse } from "@/app/data/user/get-my-enrolled-courses";
 
 import { EnrolledCourseCard } from "./EnrolledCourseCard";
@@ -18,12 +16,7 @@ export function EnrolledCoursesList({ courses }: EnrolledCoursesListProps) {
         fill
         icon={BookOpenIcon}
         title="No courses yet"
-        description="You haven't enrolled in any courses. Browse the catalog to get started."
-        action={
-          <Link href="/courses" className={buttonVariants()}>
-            Browse courses
-          </Link>
-        }
+        description="Your administrator will assign courses to your account."
       />
     );
   }
