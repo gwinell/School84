@@ -8,6 +8,7 @@ import type { tUserLessonQuiz } from "@/app/data/user/get-lesson-quiz";
 import { QuizCellPlayer } from "./QuizCellPlayer";
 import { CodeTaskWorkspace } from "./CodeTaskWorkspace";
 import { ActivityHeartbeat } from "./ActivityHeartbeat";
+import { LearnerQuizAttemptHistory, type LearnerQuizAttempt } from "./LearnerQuizAttemptHistory";
 
 const cellDetails = {
   TEXT: { label: "Конспект", Icon: FileTextIcon },
@@ -24,7 +25,7 @@ function richText(value: string | null): JSONContent | null {
     return null;
   }
 }
-export function LessonCellContent({ cell }: { cell: tCourseForLearningCell }) {
+export function LessonCellContent({ cell, quizAttempts = [] }: { cell: tCourseForLearningCell; quizAttempts?: LearnerQuizAttempt[] }) {
   const { Icon, label } = cellDetails[cell.type];
   const description = richText(cell.textContent);
 
@@ -71,6 +72,7 @@ export function LessonCellContent({ cell }: { cell: tCourseForLearningCell }) {
           </CardContent>
         </Card>
       ) : null}
+      {cell.type === "QUIZ" ? <LearnerQuizAttemptHistory attempts={quizAttempts} /> : null}
     </section>
   );
 }

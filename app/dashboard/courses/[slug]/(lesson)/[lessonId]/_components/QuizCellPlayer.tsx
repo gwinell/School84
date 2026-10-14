@@ -21,18 +21,26 @@ export function QuizCellPlayer({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
-  function markPassed(quizAnswers: Record<string, string[]>) {
-    if (passed || isPending) return;
+  function saveAttempt(quizAnswers: Record<string, string[]>) {
+    if (isPending) return;
     startTransition(async () => {
       const { data, error } = await tryCatch(passLessonCellAction({ cellId, quizAnswers }));
       if (error || data?.status === "error") {
-        toast.error(data?.status === "error" ? data.message : "Не удалось сохранить прогресс");
+        const attempt = data?.status === "error" && data.data && typeof data.data === "object"
+          ? data.data as { score?: unknown; total?: unknown }
+          : null;
+        if (typeof attempt?.score === "number" && typeof attempt.total === "number") {
+          toast.info(`Попытка сохранена: ${attempt.score}/${attempt.total}. Проверьте ответы и попробуйте снова.`);
+          router.refresh();
+          return;
+        }
+        toast.error(data?.status === "error" ? data.message : "Не удалось сохранить попытку");
         return;
       }
-      toast.success("Quiz пройден");
+      if (!passed) toast.success("Quiz пройден");
       router.refresh();
     });
   }
 
-  return <QuizPlayer quiz={quiz} onPassed={markPassed} />;
+  return <QuizPlayer quiz={quiz} onSubmitted={saveAttempt} />;
 }

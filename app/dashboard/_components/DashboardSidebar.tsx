@@ -8,6 +8,7 @@ import {
   LayersIcon,
   MessageCircleQuestionMarkIcon,
   UserIcon,
+  ClipboardListIcon,
 } from "lucide-react";
 
 import NavUser from "@/components/nav-user";
@@ -36,7 +37,7 @@ function isNavItemActive(pathname: string, url: string) {
   return pathname === url || pathname.startsWith(url + "/");
 }
 
-export function DashboardSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
+export function DashboardSidebar({ role, ...props }: ComponentProps<typeof Sidebar> & { role?: string | null }) {
   const pathname = usePathname();
 
   const navMain: IItems[] = [
@@ -51,6 +52,9 @@ export function DashboardSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
       icon: <UserIcon size={16} />,
     },
   ];
+  if (role === "teacher" || role === "admin") {
+    navMain.push({ title: "Teaching", url: "/teacher", icon: <ClipboardListIcon size={16} /> });
+  }
 
   const navSecondary: IItems[] = [
     {

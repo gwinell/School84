@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { CheckCircle2Icon, CircleXIcon, LoaderCircleIcon, PlayIcon } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,12 +14,16 @@ import { ActivityHeartbeat } from "./ActivityHeartbeat";
 import { tryCatch } from "@/hooks/try-catch";
 
 type Submission = NonNullable<tCourseForLearningCell["latestSubmission"]>;
+type SubmissionHistoryItem = { id: string; status: string; passedTests: number; totalTests: number; actualOutput: string | null; errorText: string | null; lintOutput: string | null; durationMs: number; sourceCode: string; createdAt: Date | string; feedback: { score: number; comment: string; updatedAt: Date | string } | null };
 
 export function CodeTaskWorkspace({ cell }: { cell: tCourseForLearningCell }) {
+  const router = useRouter();
   const [sourceCode, setSourceCode] = useState(cell.latestSubmission?.sourceCode ?? cell.starterCode ?? "");
   const [submission, setSubmission] = useState<Submission | null>(cell.latestSubmission);
   const [message, setMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const submissionHistory = (cell as typeof cell & { submissionHistory?: SubmissionHistoryItem[] }).submissionHistory ?? [];
+  const latestFeedback = (cell.latestSubmission as (Submission & { feedback?: { score: number; comment: string } | null }) | null)?.feedback;
 
   function submit() {
     setMessage(null);
@@ -37,6 +42,7 @@ export function CodeTaskWorkspace({ cell }: { cell: tCourseForLearningCell }) {
         sourceCode,
         createdAt: new Date(),
       });
+      router.refresh();
     });
   }
 
@@ -118,6 +124,32 @@ export function CodeTaskWorkspace({ cell }: { cell: tCourseForLearningCell }) {
             ) : null}
           </div>
         ) : null}
+        {latestFeedback ? (
+          <div className="rounded-lg border bg-muted/30 p-4 text-sm">
+            <p className="font-medium">Проверка преподавателя: {latestFeedback.score}/100</p>
+            <p className="mt-1 whitespace-pre-wrap text-muted-foreground">{latestFeedback.comment}</p>
+          </div>
+        ) : null}
+
+        {submissionHistory.length > 1 ? <details className="rounded-lg border p-3">
+          <summary className="cursor-pointer text-sm font-medium underline underline-offset-4">История отправок ({submissionHistory.length})</summary>
+          <ol className="mt-3 space-y-3">
+            {submissionHistory.map((attempt, index) => <li key={attempt.id} className="space-y-2 rounded-md bg-muted/30 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-medium">Попытка {submissionHistory.length - index} · {new Intl.DateTimeFormat("ru-RU", { dateStyle: "medium", timeStyle: "short" }).format(new Date(attempt.createdAt))}</p>
+                <Badge variant={attempt.status === "ACCEPTED" ? "default" : "destructive"}>{attempt.status === "ACCEPTED" ? "Принято" : statusLabel[attempt.status] ?? attempt.status} · {attempt.passedTests}/{attempt.totalTests}</Badge>
+              </div>
+              <details>
+                <summary className="cursor-pointer text-xs underline underline-offset-4">Код и вывод</summary>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <pre className="max-h-48 overflow-auto rounded bg-background p-2 text-xs"><code>{attempt.sourceCode}</code></pre>
+                  <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded bg-background p-2 text-xs">{attempt.actualOutput || attempt.errorText || attempt.lintOutput || "Нет дополнительного вывода"}</pre>
+                </div>
+              </details>
+              {attempt.feedback ? <div className="rounded bg-background p-2 text-sm"><p className="font-medium">Проверка преподавателя: {attempt.feedback.score}/100</p><p className="mt-1 whitespace-pre-wrap text-muted-foreground">{attempt.feedback.comment}</p></div> : null}
+            </li>)}
+          </ol>
+        </details> : null}
       </CardContent>
     </Card>
   );

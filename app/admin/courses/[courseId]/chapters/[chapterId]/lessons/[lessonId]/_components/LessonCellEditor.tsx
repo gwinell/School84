@@ -56,11 +56,13 @@ export function LessonCellEditor({
   chapterId,
   lesson,
   selectedCell,
+  courseHrefBase = `/admin/courses/${courseId}`,
 }: {
   courseId: string;
   chapterId: string;
   lesson: TAdminGetLesson;
   selectedCell: Cell | null;
+  courseHrefBase?: string;
 }) {
   const router = useRouter();
   const [cells, setCells] = useState<Cell[]>(lesson.cells);
@@ -74,7 +76,7 @@ export function LessonCellEditor({
   function selectCell(id: string) {
     setActiveId(id);
     router.replace(
-      `/admin/courses/${courseId}/chapters/${chapterId}/lessons/${lesson.id}?cellId=${id}`,
+      `${courseHrefBase}/chapters/${chapterId}/lessons/${lesson.id}?cellId=${id}`,
       { scroll: false },
     );
   }
@@ -108,8 +110,8 @@ export function LessonCellEditor({
       setActiveId(fallback?.id ?? null);
       router.replace(
         fallback
-          ? `/admin/courses/${courseId}/chapters/${chapterId}/lessons/${lesson.id}?cellId=${fallback.id}`
-          : `/admin/courses/${courseId}/chapters/${chapterId}/lessons/${lesson.id}`,
+          ? `${courseHrefBase}/chapters/${chapterId}/lessons/${lesson.id}?cellId=${fallback.id}`
+          : `${courseHrefBase}/chapters/${chapterId}/lessons/${lesson.id}`,
         { scroll: false },
       );
       toast.success("Ячейка удалена");
@@ -155,7 +157,7 @@ export function LessonCellEditor({
   return (
     <div className="-m-4 flex min-h-[calc(100vh-4rem)] flex-col lg:-m-6">
       <header className="flex flex-wrap items-center gap-3 border-b bg-background px-4 py-3 lg:px-6">
-        <Button variant="ghost" size="icon" nativeButton={false} render={<Link href={`/admin/courses/${courseId}/chapters/${chapterId}`} />} aria-label="Назад к главе">
+        <Button variant="ghost" size="icon" nativeButton={false} render={<Link href={`${courseHrefBase}/chapters/${chapterId}`} />} aria-label="Назад к главе">
           <ArrowLeftIcon />
         </Button>
         <div className="min-w-0 flex-1">
@@ -169,7 +171,7 @@ export function LessonCellEditor({
               size="sm"
               variant={item.id === lesson.id ? "secondary" : "ghost"}
               nativeButton={false}
-              render={<Link href={`/admin/courses/${courseId}/chapters/${chapterId}/lessons/${item.id}`} />}
+              render={<Link href={`${courseHrefBase}/chapters/${chapterId}/lessons/${item.id}`} />}
               className="shrink-0"
             >
               <span className="text-muted-foreground">{index + 1}.</span>{item.title}
@@ -185,7 +187,7 @@ export function LessonCellEditor({
             {chapterList.map((chapter, chapterIndex) => (
               <section key={chapter.id}>
                 <Link
-                  href={`/admin/courses/${courseId}/chapters/${chapter.id}`}
+                  href={`${courseHrefBase}/chapters/${chapter.id}`}
                   className={cn("block rounded px-2 py-1 text-xs font-semibold", chapter.id === chapterId ? "text-foreground" : "text-muted-foreground hover:text-foreground")}
                 >
                   {chapterIndex + 1}. {chapter.title}
@@ -194,7 +196,7 @@ export function LessonCellEditor({
                   {chapter.lessons.map((item, lessonIndex) => (
                     <Link
                       key={item.id}
-                      href={`/admin/courses/${courseId}/chapters/${chapter.id}/lessons/${item.id}`}
+                      href={`${courseHrefBase}/chapters/${chapter.id}/lessons/${item.id}`}
                       className={cn("block truncate rounded px-2 py-1.5 text-sm", item.id === lesson.id ? "bg-accent font-medium text-accent-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground")}
                     >
                       <span className="mr-2 text-xs opacity-60">{lessonIndex + 1}.</span>{item.title}
@@ -363,7 +365,7 @@ function CellContentEditor({
       {cell.type === "TEXT" ? (
         <label className="block space-y-2">
           <span className="text-sm font-medium">Конспект</span>
-          <RichTextEditor field={{ value: textContent, onChange: setTextContent }} />
+          <RichTextEditor field={{ value: textContent, onChange: setTextContent }} courseId={courseId} />
         </label>
       ) : null}
 

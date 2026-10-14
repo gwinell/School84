@@ -5,15 +5,20 @@ import { PageHeader } from "@/components/admin/page-header";
 import { EditCourseForm } from "./_components/EditCourseForm";
 import { EditCourseStructureForm } from "./_components/EditCourseStructureForm";
 import { CourseAssignments } from "../_components/CourseAssignments";
+import { getAssignableTeachers, getCourseInstructors } from "@/app/data/teacher/get-course-gradebook";
+import { assignTeacherToCourse, removeTeacherFromCourse } from "@/app/admin/courses/[courseId]/assignments/actions";
+import { CourseInstructorsManager } from "@/app/teacher/_components/CourseInstructorsManager";
 
 type Params = Promise<{ courseId: string }>;
 
 export default async function EditCoursePage({ params }: { params: Params }) {
   const { courseId } = await params;
-  const [course, categoryOptions, assignments] = await Promise.all([
+  const [course, categoryOptions, assignments, instructors, candidates] = await Promise.all([
     adminGetCourse(courseId),
     adminGetCategoryOptions(),
     adminGetCourseAssignments(courseId),
+    getCourseInstructors(courseId),
+    getAssignableTeachers(),
   ]);
 
   return (
@@ -37,6 +42,13 @@ export default async function EditCoursePage({ params }: { params: Params }) {
           courseId={courseId}
           students={assignments.students}
           enrollments={assignments.enrollment}
+        />
+        <CourseInstructorsManager
+          courseId={courseId}
+          instructors={instructors}
+          candidates={candidates}
+          onAssign={assignTeacherToCourse}
+          onRemove={removeTeacherFromCourse}
         />
       </div>
     </div>

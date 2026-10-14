@@ -40,7 +40,7 @@ const EMPTY_MENU_BAR_STATE: MenuBarState = {
   canRedo: false,
 };
 
-export function RichTextEditor({ field }: { field: RichTextEditorField }) {
+export function RichTextEditor({ field, courseId }: { field: RichTextEditorField; courseId?: string }) {
   const imageInput = useRef<HTMLInputElement>(null);
   const editor = useEditor({
     extensions: [
@@ -95,6 +95,7 @@ export function RichTextEditor({ field }: { field: RichTextEditorField }) {
           contentType: file.type,
           size: file.size,
           isImage: true,
+          ...(courseId ? { courseId } : {}),
         }),
       });
       if (!response.ok) throw new Error("Could not prepare image upload");

@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { getCourseForLearning } from "@/app/data/user/get-course-for-learning";
 import { getLessonQuizForUser } from "@/app/data/user/get-lesson-quiz";
+import { getMyQuizAttempts } from "@/app/data/user/get-my-quiz-attempts";
 
 import { LessonInfo } from "./_components/LessonInfo";
 import { LessonQuizSection } from "./_components/LessonQuizSection";
@@ -9,6 +10,7 @@ import { LessonVideo } from "./_components/LessonVideo";
 import { LessonCellStepper } from "./_components/LessonCellStepper";
 import { LessonCellContent } from "./_components/LessonCellContent";
 import { PassCellButton } from "./_components/PassCellButton";
+import { LearningCursorMarker } from "./_components/LearningCursorMarker";
 
 interface PageParams {
   params: Promise<{ slug: string; lessonId: string }>;
@@ -61,6 +63,8 @@ export default async function LessonPlayerPage({ params, searchParams }: PagePar
       redirect(`/dashboard/courses/${slug}/${lessonId}?cellId=${active.id}`);
     }
 
+    const quizAttempts = active.type === "QUIZ" ? await getMyQuizAttempts(active.id) : [];
+
     return (
       <div className="mx-auto w-full max-w-5xl space-y-5">
         <div className="flex flex-wrap items-end justify-between gap-3">
@@ -77,12 +81,13 @@ export default async function LessonPlayerPage({ params, searchParams }: PagePar
           cells={currentLesson.cells}
           activeCellId={active.id}
         />
+        <LearningCursorMarker key={`cursor-${active.id}`} courseId={course.id} lessonId={currentLesson.id} cellId={active.id} />
 
         {currentLesson.videoUrl ? (
           <LessonVideo videoUrl={currentLesson.videoUrl} title={currentLesson.title} />
         ) : null}
 
-        <LessonCellContent key={active.id} cell={active} />
+        <LessonCellContent key={active.id} cell={active} quizAttempts={quizAttempts} />
         {active.type === "TEXT" || (active.type === "QUIZ" && !active.quiz?.questions.length) ? (
           <PassCellButton cellId={active.id} passed={active.status === "PASSED"} />
         ) : null}
@@ -98,6 +103,7 @@ export default async function LessonPlayerPage({ params, searchParams }: PagePar
         videoUrl={currentLesson.videoUrl}
         title={currentLesson.title}
       />
+      <LearningCursorMarker courseId={course.id} lessonId={currentLesson.id} />
 
       <LessonInfo
         lessonId={currentLesson.id}

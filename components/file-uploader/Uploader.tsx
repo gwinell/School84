@@ -28,6 +28,7 @@ interface iUploaderState {
 }
 
 interface UploaderProps {
+  courseId?: string;
   onUploadComplete?: (key: string) => void;
   fileType?: "image" | "video";
   initialPreviewUrl?: string | null;
@@ -39,6 +40,7 @@ const MAX_IMAGE_SIZE = 3 * 1024 * 1024; // 3MB
 const MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100MB
 
 export function Uploader({
+  courseId,
   onUploadComplete,
   fileType = "image",
   initialPreviewUrl = null,
@@ -81,14 +83,14 @@ export function Uploader({
     pendingKeysRef.current.clear();
     if (keys.length === 0) return;
     try {
-      const blob = new Blob([JSON.stringify({ keys })], {
+      const blob = new Blob([JSON.stringify({ keys, ...(courseId ? { courseId } : {}) })], {
         type: "application/json",
       });
       navigator.sendBeacon("/api/s3/discard-upload", blob);
     } catch {
       // Best-effort cleanup; ignore beacon failures.
     }
-  }, []);
+  }, [courseId]);
 
   const uploadFile = useCallback(
     async (file: File) => {
@@ -109,6 +111,7 @@ export function Uploader({
             contentType: file.type,
             size: file.size,
             isImage: fileType === "image",
+            ...(courseId ? { courseId } : {}),
           }),
         });
 
@@ -175,7 +178,7 @@ export function Uploader({
         });
       }
     },
-    [fileType, onUploadComplete],
+    [courseId, fileType, onUploadComplete],
   );
 
   const onDrop = useCallback(
@@ -232,7 +235,7 @@ export function Uploader({
       const response = await fetch("/api/s3/delete", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: fileState.key }),
+        body: JSON.stringify({ key: fileState.key, ...(courseId ? { courseId } : {}) }),
       });
 
       if (!response.ok) {
@@ -268,7 +271,7 @@ export function Uploader({
         error: true,
       }));
     }
-  }, [fileState, fileType, onRemoveInitial]);
+  }, [courseId, fileState, fileType, onRemoveInitial]);
 
   function rejectefFiles(fileRejection: FileRejection[]) {
     if (fileRejection.length) {

@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import type { tEnrolledCourse } from "@/app/data/user/get-my-enrolled-courses";
+import { getLearningLocationHref } from "@/app/dashboard/_lib/learning-links";
 
 interface EnrolledCourseCardProps {
   course: tEnrolledCourse;
@@ -25,9 +26,11 @@ function formatDuration(minutes: number): string {
 }
 
 export function EnrolledCourseCard({ course }: EnrolledCourseCardProps) {
-  const continueHref = course.resumeLessonId
-    ? `/dashboard/courses/${course.slug}/${course.resumeLessonId}`
-    : `/dashboard/courses/${course.slug}`;
+  const continueHref = getLearningLocationHref({
+    slug: course.slug,
+    lessonId: course.resumeLessonId,
+    cellId: (course as typeof course & { resumeCellId?: string | null }).resumeCellId,
+  });
   const hasStarted = course.completedCount > 0;
 
   const lessonWord = course.lessonsCount === 1 ? "lesson" : "lessons";

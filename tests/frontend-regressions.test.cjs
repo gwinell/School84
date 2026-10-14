@@ -90,6 +90,80 @@ test("recent dashboard courses link to their existing admin edit pages", () => {
   }
 });
 
+test("continue links resume at the saved lesson and cell safely", () => {
+  const file = path.join(__dirname, "..", "app/dashboard/_lib/learning-links.ts");
+  const code = ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: {
+    target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS,
+  } }).outputText;
+  const exports = {};
+  vm.runInNewContext(code, { exports, encodeURIComponent });
+  assert.equal(exports.getLearningLocationHref({ slug: "math course", lessonId: "lesson/4", cellId: "cell 2" }),
+    "/dashboard/courses/math%20course/lesson%2F4?cellId=cell%202");
+  assert.equal(exports.getLearningLocationHref({ slug: "math", lessonId: null, cellId: null }),
+    "/dashboard/courses/math");
+});
+
+test("review form validates score and preserves feedback after a failed save", async () => {
+  const calls = [];
+  const h = load("app/teacher/_components/SubmissionReviewForm.tsx", {
+    "@/components/ui/button": { Button: "Button" },
+    "@/components/ui/input": { Input: "Input" },
+    "@/components/ui/textarea": { Textarea: "Textarea" },
+  });
+  const props = { target: { codeSubmissionId: "submission-a" }, onSubmit: async (input) => {
+    calls.push(input); return { status: "error", message: "Try again" };
+  } };
+  let tree = h.render("SubmissionReviewForm", props);
+  const form = find(tree, (n) => n.type === "form");
+  find(tree, (n) => n.type === "Input").props.onChange({ target: { value: "101" } });
+  find(tree, (n) => n.type === "Textarea").props.onChange({ target: { value: "Helpful note" } });
+  tree = h.render("SubmissionReviewForm", props);
+  find(tree, (n) => n.type === "form").props.onSubmit({ preventDefault() {} });
+  assert.equal(calls.length, 0);
+  assert.match(text(find(h.render("SubmissionReviewForm", props), (n) => n.props.role === "alert")), /от 0 до 100/);
+
+  find(h.render("SubmissionReviewForm", props), (n) => n.type === "Input").props.onChange({ target: { value: "87" } });
+  tree = h.render("SubmissionReviewForm", props);
+  find(tree, (n) => n.type === "form").props.onSubmit({ preventDefault() {} });
+  await h.flush();
+  tree = h.render("SubmissionReviewForm", props);
+  assert.equal(calls[0].score, 87);
+  assert.equal(calls[0].comment, "Helpful note");
+  assert.equal(find(tree, (n) => n.type === "Input").props.value, "87");
+  assert.equal(find(tree, (n) => n.type === "Textarea").props.value, "Helpful note");
+  assert.match(text(find(tree, (n) => n.props.role === "alert")), /Try again/);
+  assert.equal(form.type, "form");
+});
+
+test("teacher bulk assignment normalizes addresses and keeps input after API failure", async () => {
+  const calls = [];
+  const h = load("app/teacher/_components/CourseRosterManager.tsx", {
+    "@/components/ui/button": { Button: "Button" },
+    "@/components/ui/input": { Input: "Input" },
+    "@/components/ui/textarea": { Textarea: "Textarea" },
+    "@/components/ui/badge": { Badge: "Badge" },
+  });
+  const props = {
+    courseId: "course-a", enrollments: [],
+    onInvite: async () => ({ status: "error", message: "invite error" }),
+    onBulkAssign: async (input) => { calls.push(input); return { status: "error", message: "bulk error" }; },
+    onCancel: async () => ({ status: "success" }), onSetDueDate: async () => ({ status: "success" }),
+  };
+  let tree = h.render("CourseRosterManager", props);
+  const field = find(tree, (n) => n.type === "Textarea");
+  field.props.onChange({ target: { value: " A@Example.test,\nb@example.test a@example.test " } });
+  tree = h.render("CourseRosterManager", props);
+  const form = find(tree, (n) => n.type === "form" && n.props["aria-label"] === "Массово назначить курс");
+  form.props.onSubmit({ preventDefault() {} });
+  await h.flush();
+  assert.deepEqual(plain(calls[0]), {
+    courseId: "course-a", accessMode: "ALL_AT_ONCE", dueAt: null,
+    emails: ["a@example.test", "b@example.test"],
+  });
+  assert.equal(find(h.render("CourseRosterManager", props), (n) => n.type === "Textarea").props.value,
+    " A@Example.test,\nb@example.test a@example.test ");
+});
+
 function heartbeat() {
   let now = 0;
   let tick;
@@ -245,11 +319,38 @@ test("correct quiz completion sends the selected answers for server verification
   const h = load(`${learner}/_components/QuizPlayer.tsx`, {
     "../quiz-actions": { gradeQuizAnswerAction: async () => ({ isCorrect: true, correctAnswerIds: ["a1"], explanations: {} }) },
   });
-  const props = { quiz, onPassed: (answers) => passed.push(answers) };
+  const props = { quiz, onSubmitted: (answers) => passed.push(answers) };
   find(h.render("QuizPlayer", props), (n) => n.props.question).props.onSingleChange("a1");
   button(h.render("QuizPlayer", props), "Submit answer").props.onClick(); await h.flush();
   button(h.render("QuizPlayer", props), "See result").props.onClick();
   assert.deepEqual(plain(passed), [{ q1: ["a1"] }]);
+});
+
+test("incorrect quiz completion still records the selected answers", async () => {
+  const submitted = [];
+  const h = load(`${learner}/_components/QuizPlayer.tsx`, {
+    "../quiz-actions": { gradeQuizAnswerAction: async () => ({ isCorrect: false, correctAnswerIds: ["a1"], explanations: {} }) },
+  });
+  const props = { quiz, onSubmitted: (answers) => submitted.push(answers) };
+  find(h.render("QuizPlayer", props), (n) => n.props.question).props.onSingleChange("a2");
+  button(h.render("QuizPlayer", props), "Submit answer").props.onClick(); await h.flush();
+  button(h.render("QuizPlayer", props), "See result").props.onClick();
+  assert.deepEqual(plain(submitted), [{ q1: ["a2"] }]);
+});
+
+test("wrong quiz attempt response is shown as a saved attempt, not a server error", async () => {
+  const info = [];
+  const inputs = [];
+  const h = load(`${learner}/_components/QuizCellPlayer.tsx`, {
+    "../cell-progress-actions": { passLessonCellAction: async (input) => {
+      inputs.push(input); return { status: "error", message: "Answer every question", data: { score: 0, total: 1 } };
+    } },
+    sonner: { toast: { error: () => assert.fail("expected incorrect answers are not a server error"), success() {}, info: (message) => info.push(message) } },
+  });
+  const tree = h.render("QuizCellPlayer", { quiz, cellId: "quiz-a", passed: false });
+  tree.props.onSubmitted({ q1: ["a2"] }); await h.flush();
+  assert.deepEqual(plain(inputs), [{ cellId: "quiz-a", quizAnswers: { q1: ["a2"] } }]);
+  assert.match(info[0], /Попытка сохранена: 0\/1/);
 });
 
 test("quiz bridge sends quizAnswers to the progression action", async () => {
@@ -258,7 +359,7 @@ test("quiz bridge sends quizAnswers to the progression action", async () => {
     "../cell-progress-actions": { passLessonCellAction: async (value) => { inputs.push(value); return { status: "success" }; } },
   });
   const tree = h.render("QuizCellPlayer", { quiz, cellId: "quiz-a", passed: false });
-  tree.props.onPassed({ q1: ["a1"] }); await h.flush();
+  tree.props.onSubmitted({ q1: ["a1"] }); await h.flush();
   assert.deepEqual(plain(inputs), [{ cellId: "quiz-a", quizAnswers: { q1: ["a1"] } }]);
 });
 

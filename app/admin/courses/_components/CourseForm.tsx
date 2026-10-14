@@ -66,6 +66,7 @@ export type CourseFormProps = {
   fireConfetti?: boolean;
   existingImageUrl?: string | null;
   existingImageKey?: string | null;
+  uploadCourseId?: string;
 };
 
 export function CourseForm({
@@ -83,6 +84,7 @@ export function CourseForm({
   fireConfetti = false,
   existingImageUrl = null,
   existingImageKey = null,
+  uploadCourseId,
 }: CourseFormProps) {
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
@@ -250,7 +252,7 @@ export function CourseForm({
               render={({ field, fieldState }) => (
                 <Field data-invalid={fieldState.invalid}>
                   <FieldLabel htmlFor="description">Description</FieldLabel>
-                  <RichTextEditor field={field} />
+                  <RichTextEditor field={field} courseId={uploadCourseId} />
                   <FieldDescription>
                     Detailed description of what students will learn (max 500
                     characters)
@@ -275,6 +277,7 @@ export function CourseForm({
                     </span>
                   </FieldLabel>
                   <Uploader
+                    courseId={uploadCourseId}
                     initialPreviewUrl={existingImageUrl}
                     initialKey={existingImageKey}
                     onRemoveInitial={() => field.onChange("")}

@@ -22,10 +22,10 @@ import { gradeQuizAnswerAction, type tQuizGrade } from "../quiz-actions";
 
 interface QuizPlayerProps {
   quiz: tUserLessonQuiz;
-  onPassed?: (answers: Record<string, string[]>) => void;
+  onSubmitted?: (answers: Record<string, string[]>) => void;
 }
 
-export function QuizPlayer({ quiz, onPassed }: QuizPlayerProps) {
+export function QuizPlayer({ quiz, onSubmitted }: QuizPlayerProps) {
   const [selections, setSelections] = useState<Record<string, Set<string>>>(
     {},
   );
@@ -91,9 +91,7 @@ export function QuizPlayer({ quiz, onPassed }: QuizPlayerProps) {
   function advance() {
     if (isLast) {
       setFinished(true);
-      if (correctCount === totalQuestions) {
-        onPassed?.(Object.fromEntries(Object.entries(selections).map(([id, answers]) => [id, Array.from(answers)])));
-      }
+      onSubmitted?.(Object.fromEntries(Object.entries(selections).map(([id, answers]) => [id, Array.from(answers)])));
       return;
     }
     setStep((s) => s + 1);

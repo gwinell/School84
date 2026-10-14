@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { requireUser } from "@/app/data/user/require-user";
 
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 
@@ -9,7 +10,8 @@ interface DashboardLayoutProps {
   children: ReactNode;
 }
 
-export default function DashboardLayout({ children }: DashboardLayoutProps) {
+export default async function DashboardLayout({ children }: DashboardLayoutProps) {
+  const session = await requireUser();
   return (
     <SidebarProvider
       className="h-svh overflow-hidden"
@@ -21,7 +23,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       }
     >
       {/* Sidebar */}
-      <DashboardSidebar variant="inset" />
+      <DashboardSidebar variant="inset" role={session.user.role} />
 
       <SidebarInset className="min-h-0 overflow-hidden">
         {/* Header */}

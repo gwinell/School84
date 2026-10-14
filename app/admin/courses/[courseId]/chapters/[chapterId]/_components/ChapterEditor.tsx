@@ -14,7 +14,7 @@ import NewLessonModal from "../../../edit/_components/NewLessonModal";
 import DeleteLessonModal from "../../../edit/_components/DeleteLessonModal";
 import DeleteChapterModal from "../../../edit/_components/DeleteChapterModal";
 
-export function ChapterEditor({ chapter: initial }: { chapter: tAdminGetChapter }) {
+export function ChapterEditor({ chapter: initial, courseHrefBase = `/admin/courses/${initial.courseId}` }: { chapter: tAdminGetChapter; courseHrefBase?: string }) {
   const [chapter, setChapter] = useState(initial);
   const [title, setTitle] = useState(initial.title);
   const [isPending, startTransition] = useTransition();
@@ -84,7 +84,7 @@ export function ChapterEditor({ chapter: initial }: { chapter: tAdminGetChapter 
               <span className="w-7 text-center text-xs text-muted-foreground">{index + 1}</span>
               <PlayCircleIcon className="size-4 text-muted-foreground" />
               <Link
-                href={`/admin/courses/${chapter.courseId}/chapters/${chapter.id}/lessons/${lesson.id}`}
+                href={`${courseHrefBase}/chapters/${chapter.id}/lessons/${lesson.id}`}
                 className="min-w-0 flex-1 truncate text-sm font-medium hover:text-primary"
               >
                 {lesson.title}

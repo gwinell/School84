@@ -20,10 +20,12 @@ type Chapter = { id: string; title: string; position: number; lessons: { id: str
 
 function ChapterRow({
   courseId,
+  courseHrefBase,
   chapter,
   index,
 }: {
   courseId: string;
+  courseHrefBase: string;
   chapter: Chapter;
   index: number;
 }) {
@@ -41,7 +43,7 @@ function ChapterRow({
         </button>
         <BookOpenIcon className="size-4 text-muted-foreground" />
         <Link
-          href={`/admin/courses/${courseId}/chapters/${chapter.id}`}
+          href={`${courseHrefBase}/chapters/${chapter.id}`}
           className="min-w-0 flex-1 hover:text-primary"
         >
           <span className="block truncate font-medium">{chapter.title}</span>
@@ -53,7 +55,7 @@ function ChapterRow({
           variant="ghost"
           size="sm"
           nativeButton={false}
-          render={<Link href={`/admin/courses/${courseId}/chapters/${chapter.id}`} />}
+          render={<Link href={`${courseHrefBase}/chapters/${chapter.id}`} />}
         >
           Редактировать
         </Button>
@@ -65,8 +67,10 @@ function ChapterRow({
 
 export function EditCourseStructureForm({
   course,
+  courseHrefBase = `/admin/courses/${course.id}`,
 }: {
   course: tAdminGetCourse;
+  courseHrefBase?: string;
 }) {
   const [chapters, setChapters] = useState<Chapter[]>(course.courseChapters);
   const [isPending, startTransition] = useTransition();
@@ -114,6 +118,7 @@ export function EditCourseStructureForm({
             <ChapterRow
               key={chapter.id}
               courseId={course.id}
+              courseHrefBase={courseHrefBase}
               chapter={chapter}
               index={index}
             />
