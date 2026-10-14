@@ -41,6 +41,7 @@ export function CodeTaskWorkspace({ cell }: { cell: tCourseForLearningCell }) {
         ...result.data,
         sourceCode,
         createdAt: new Date(),
+        feedback: null,
       });
       router.refresh();
     });

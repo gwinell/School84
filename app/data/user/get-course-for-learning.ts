@@ -29,6 +29,7 @@ export type tCourseForLearningCell = {
   starterCode: string | null;
   examples: unknown;
   latestSubmission: {
+    id: string;
     status: "ACCEPTED" | "WRONG_ANSWER" | "LINT_ERROR" | "RUNTIME_ERROR" | "TIME_LIMIT" | "SYSTEM_ERROR";
     passedTests: number;
     totalTests: number;
@@ -38,7 +39,21 @@ export type tCourseForLearningCell = {
     durationMs: number;
     sourceCode: string;
     createdAt: Date;
+    feedback: { score: number; comment: string; updatedAt: Date } | null;
   } | null;
+  submissionHistory: {
+    id: string;
+    status: "ACCEPTED" | "WRONG_ANSWER" | "LINT_ERROR" | "RUNTIME_ERROR" | "TIME_LIMIT" | "SYSTEM_ERROR";
+    passedTests: number;
+    totalTests: number;
+    actualOutput: string | null;
+    errorText: string | null;
+    lintOutput: string | null;
+    durationMs: number;
+    sourceCode: string;
+    createdAt: Date;
+    feedback: { score: number; comment: string; updatedAt: Date } | null;
+  }[];
   quiz: {
     id: string;
     questions: {
@@ -158,8 +173,9 @@ export async function getCourseForLearning({
                   submissions: {
                     where: { userId: session.user.id },
                     orderBy: { createdAt: "desc" },
-                    take: 1,
+                    take: 20,
                     select: {
+                      id: true,
                       status: true,
                       passedTests: true,
                       totalTests: true,
@@ -169,6 +185,7 @@ export async function getCourseForLearning({
                       durationMs: true,
                       sourceCode: true,
                       createdAt: true,
+                      feedback: { select: { score: true, comment: true, updatedAt: true } },
                     },
                   },
                   quiz: {
@@ -308,6 +325,7 @@ export async function getCourseForLearning({
           starterCode: !unlockedLessonIds.has(lesson.id) ? null : cell.starterCode,
           examples: !unlockedLessonIds.has(lesson.id) ? null : cell.examples,
           latestSubmission: !unlockedLessonIds.has(lesson.id) ? null : cell.submissions[0] ?? null,
+          submissionHistory: !unlockedLessonIds.has(lesson.id) ? [] : cell.submissions,
           quiz: !unlockedLessonIds.has(lesson.id) ? null : cell.quiz,
         }))),
       }))),

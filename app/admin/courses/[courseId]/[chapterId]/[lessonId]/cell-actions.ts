@@ -3,10 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
-import { requireAdmin } from "@/app/data/admin/require-admin";
+import { requireTeacher } from "@/app/data/teacher/require-teacher";
 import { Prisma } from "@/lib/generated/prisma/client";
 import prisma from "@/lib/prisma";
 import { errorResponse, successResponse } from "@/lib/responses";
+import { canUseCourseMediaKeys, extractInlineMediaKeys } from "@/lib/teacher/course-media";
 
 const cellTypeSchema = z.enum(["TEXT", "CODE_TASK", "QUIZ"]);
 const exampleSchema = z.object({
@@ -48,13 +49,28 @@ function normalizeImageKeys(content: string | null) {
 }
 
 async function getLessonPath(lessonId: string) {
-  return prisma.lesson.findUnique({
-    where: { id: lessonId },
+  const session = await requireTeacher();
+  const managedCourseIds = session.user.role === "admin"
+    ? null
+    : (await prisma.courseInstructor.findMany({ where: { userId: session.user.id }, select: { courseId: true } })).map((row) => row.courseId);
+  return prisma.lesson.findFirst({
+    where: { id: lessonId, ...(managedCourseIds ? { chapter: { courseId: { in: managedCourseIds } } } : {}) },
     select: {
       id: true,
       chapterId: true,
       chapter: { select: { courseId: true } },
     },
+  });
+}
+
+async function getCellPath(cellId: string) {
+  const session = await requireTeacher();
+  const managedCourseIds = session.user.role === "admin"
+    ? null
+    : (await prisma.courseInstructor.findMany({ where: { userId: session.user.id }, select: { courseId: true } })).map((row) => row.courseId);
+  return prisma.lessonCell.findFirst({
+    where: { id: cellId, ...(managedCourseIds ? { lesson: { chapter: { courseId: { in: managedCourseIds } } } } : {}) },
+    select: { id: true, lessonId: true, lesson: { select: { chapter: { select: { courseId: true } } } } },
   });
 }
 
@@ -65,7 +81,6 @@ export async function createLessonCell({
   lessonId: string;
   type: "TEXT" | "CODE_TASK" | "QUIZ";
 }) {
-  await requireAdmin();
   const path = await getLessonPath(lessonId);
   if (!path) return errorResponse("Lesson not found", null);
 
@@ -137,9 +152,11 @@ export async function updateLessonCell({
   cellId: string;
   values: unknown;
 }) {
-  await requireAdmin();
+  const session = await requireTeacher();
   const parsed = cellSchema.safeParse(values);
   if (!parsed.success) return errorResponse("Invalid cell data", null);
+  const scopedPath = await getCellPath(cellId);
+  if (!scopedPath) return errorResponse("Cell not found", null);
 
   const cell = await prisma.lessonCell.findUnique({
     where: { id: cellId },
@@ -147,10 +164,28 @@ export async function updateLessonCell({
       id: true,
       type: true,
       lessonId: true,
+      textContent: true,
       lesson: { select: { chapter: { select: { courseId: true } } } },
     },
   });
   if (!cell) return errorResponse("Cell not found", null);
+
+  const courseId = cell.lesson.chapter.courseId;
+  const incomingMediaKeys = parsed.data.type === "TEXT"
+    ? extractInlineMediaKeys(parsed.data.textContent)
+    : [];
+  const existingMediaKeys = cell.type === "TEXT"
+    ? extractInlineMediaKeys(cell.textContent)
+    : [];
+  if (!(await canUseCourseMediaKeys({
+    keys: incomingMediaKeys,
+    existingKeys: existingMediaKeys,
+    courseId,
+    userId: session.user.id,
+    role: session.user.role,
+  }))) {
+    return errorResponse("Image upload is not available", null);
+  }
 
   try {
     await prisma.$transaction(async (tx) => {
@@ -204,7 +239,12 @@ export async function updateLessonCell({
       }
       if (imageKeys.size) {
         await tx.pendingUpload.deleteMany({
-          where: { key: { in: Array.from(imageKeys) } },
+          where: {
+            key: { in: Array.from(imageKeys) },
+            ...(session.user.role === "admin"
+              ? {}
+              : { userId: session.user.id, courseId }),
+          },
         });
       }
     });
@@ -219,7 +259,8 @@ export async function updateLessonCell({
 }
 
 export async function deleteLessonCell({ cellId }: { cellId: string }) {
-  await requireAdmin();
+  const scopedPath = await getCellPath(cellId);
+  if (!scopedPath) return errorResponse("Cell not found", null);
   const cell = await prisma.lessonCell.findUnique({
     where: { id: cellId },
     select: {
@@ -273,7 +314,6 @@ export async function reorderLessonCells({
   lessonId: string;
   cellIds: string[];
 }) {
-  await requireAdmin();
   const path = await getLessonPath(lessonId);
   if (!path) return errorResponse("Lesson not found", null);
 

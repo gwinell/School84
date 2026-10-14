@@ -15,7 +15,7 @@ export async function passLessonCellAction({
 }: {
   cellId: string;
   quizAnswers?: Record<string, string[]>;
-}): Promise<tApiResponse<{ nextCellId: string | null } | null>> {
+}): Promise<tApiResponse<{ nextCellId: string | null; score?: number; total?: number } | null>> {
   const session = await requireUser();
   const input = z.object({
     cellId: z.string().min(1),
@@ -29,7 +29,7 @@ export async function passLessonCellAction({
       lessonId: true,
       type: true,
       quiz: { select: { questions: { select: {
-        id: true, answers: { select: { id: true, isCorrect: true } },
+        id: true, text: true, answers: { select: { id: true, text: true, isCorrect: true } },
       } } } },
       lesson: {
         select: {
@@ -73,15 +73,27 @@ export async function passLessonCellAction({
     }
   }
 
-  if (cell.type === "QUIZ" && cell.quiz?.questions.length) {
+  let quizAttemptPassed = false;
+  if (cell.type === "QUIZ") {
     const answers = input.data.quizAnswers;
-    const valid = answers && cell.quiz.questions.every((question) => {
-      const selected = answers[question.id];
-      const correct = question.answers.filter((answer) => answer.isCorrect).map((answer) => answer.id);
-      return selected && correct.length > 0 && selected.length === correct.length &&
-        new Set(selected).size === selected.length && correct.every((id) => selected.includes(id));
+    const questions = cell.quiz?.questions ?? [];
+    if (questions.length === 0) return errorResponse("В этом тесте пока нет вопросов", { nextCellId: null });
+    let score = 0;
+    const selectedAnswers = questions.map((question) => {
+      const selected = [...new Set((answers?.[question.id] ?? []).filter((answerId) => question.answers.some((answer) => answer.id === answerId)))];
+      const correctIds = question.answers.filter((answer) => answer.isCorrect).map((answer) => answer.id);
+      const isCorrect = correctIds.length > 0 && selected.length === correctIds.length && correctIds.every((id) => selected.includes(id));
+      if (isCorrect) score++;
+      return {
+        questionId: question.id,
+        questionText: question.text,
+        selectedAnswerIds: selected,
+        selectedAnswerTexts: question.answers.filter((answer) => selected.includes(answer.id)).map((answer) => answer.text),
+      };
     });
-    if (!valid) return errorResponse("Answer every quiz question correctly before completing this cell", null);
+    quizAttemptPassed = score === questions.length;
+    await prisma.quizAttempt.create({ data: { userId: session.user.id, lessonCellId: cell.id, selectedAnswers, score, total: questions.length, passed: quizAttemptPassed } });
+    if (!quizAttemptPassed) return errorResponse("Ответьте правильно на все вопросы, чтобы завершить тест", { nextCellId: null, score, total: questions.length });
   }
 
   const siblings = await prisma.lessonCell.findMany({

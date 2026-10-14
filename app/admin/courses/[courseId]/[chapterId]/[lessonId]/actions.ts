@@ -9,7 +9,9 @@ import {
   lessonSchema,
 } from "@/lib/zodSchemas";
 import { z } from "zod";
-import { requireAdmin } from "@/app/data/admin/require-admin";
+import { requireTeacher } from "@/app/data/teacher/require-teacher";
+import { requireCourseTeacher } from "@/app/data/teacher/require-course-teacher";
+import { canUseCourseMediaKeys } from "@/lib/teacher/course-media";
 import arcjet, { detectBot, fixedWindow } from "@/lib/arcjet";
 import { request } from "@arcjet/next";
 import { revalidatePath } from "next/cache";
@@ -55,8 +57,7 @@ const quizAj = arcjet
   );
 
 export async function updateLesson(lessonId: string, values: LessonSchemaType) {
-  const session = await requireAdmin();
-
+  const session = await requireTeacher();
   try {
     const req = await request();
     const decision = await aj.protect(req, {
@@ -73,8 +74,9 @@ export async function updateLesson(lessonId: string, values: LessonSchemaType) {
       return errorResponse("Invalid data", z.treeifyError(validatedData.error));
     }
 
-    const before = await prisma.lesson.findUnique({
-      where: { id: lessonId },
+    const { session: courseSession } = await requireCourseTeacher(validatedData.data.courseId);
+    const before = await prisma.lesson.findFirst({
+      where: { id: lessonId, chapterId: validatedData.data.chapterId, chapter: { courseId: validatedData.data.courseId } },
       select: {
         id: true,
         title: true,
@@ -88,6 +90,17 @@ export async function updateLesson(lessonId: string, values: LessonSchemaType) {
       return errorResponse("Lesson not found", null);
     }
 
+    const nextVideoKey = validatedData.data.videoKey ?? null;
+    if (!(await canUseCourseMediaKeys({
+      keys: nextVideoKey ? [nextVideoKey] : [],
+      existingKeys: before.videoKey ? [before.videoKey] : [],
+      courseId: validatedData.data.courseId,
+      userId: courseSession.user.id,
+      role: courseSession.user.role,
+    }))) {
+      return errorResponse("Video upload is not available", null);
+    }
+
     const lesson = await prisma.lesson.update({
       where: { id: lessonId },
       data: {
@@ -97,9 +110,16 @@ export async function updateLesson(lessonId: string, values: LessonSchemaType) {
       },
     });
 
-    if (validatedData.data.videoKey) {
+    if (nextVideoKey && nextVideoKey !== before.videoKey) {
       await prisma.pendingUpload
-        .delete({ where: { key: validatedData.data.videoKey } })
+        .deleteMany({
+          where: {
+            key: nextVideoKey,
+            ...(courseSession.user.role === "admin"
+              ? {}
+              : { userId: courseSession.user.id, courseId: validatedData.data.courseId }),
+          },
+        })
         .catch(() => {});
     }
 
@@ -136,8 +156,12 @@ export async function updateLesson(lessonId: string, values: LessonSchemaType) {
 }
 
 async function findCellContext(cellId: string) {
-  const cell = await prisma.lessonCell.findUnique({
-    where: { id: cellId },
+  const session = await requireTeacher();
+  const managedCourseIds = session.user.role === "admin"
+    ? null
+    : (await prisma.courseInstructor.findMany({ where: { userId: session.user.id }, select: { courseId: true } })).map((row) => row.courseId);
+  const cell = await prisma.lessonCell.findFirst({
+    where: { id: cellId, ...(managedCourseIds ? { lesson: { chapter: { courseId: { in: managedCourseIds } } } } : {}) },
     select: {
       lessonId: true,
       lesson: {
@@ -162,7 +186,7 @@ export async function upsertLessonQuiz(
   cellId: string,
   values: Omit<LessonQuizSchemaType, "lessonId">,
 ) {
-  const session = await requireAdmin();
+  const session = await requireTeacher();
 
   try {
     const req = await request();
@@ -323,7 +347,7 @@ export async function reorderQuizQuestions({
       return errorResponse("Invalid data", z.treeifyError(parsed.error));
     }
 
-    await requireAdmin();
+    await requireTeacher();
 
     const ctx = await findCellContext(cellId);
     if (!ctx) {

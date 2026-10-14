@@ -3,21 +3,26 @@ import "server-only";
 import { notFound } from "next/navigation";
 
 import prisma from "@/lib/prisma";
-import { requireAdmin } from "./require-admin";
+import { requireCourseTeacher } from "@/app/data/teacher/require-course-teacher";
 
 export async function adminGetCourseAssignments(courseId: string) {
-  await requireAdmin();
+  await requireCourseTeacher(courseId);
   const course = await prisma.course.findUnique({
     where: { id: courseId },
     select: {
       id: true,
       title: true,
+      instructors: {
+        orderBy: { createdAt: "asc" },
+        select: { user: { select: { id: true, name: true, email: true } } },
+      },
       enrollment: {
         orderBy: { createdAt: "desc" },
         select: {
           id: true,
           accessMode: true,
           status: true,
+          dueAt: true,
           user: { select: { id: true, name: true, email: true } },
         },
       },
@@ -26,12 +31,12 @@ export async function adminGetCourseAssignments(courseId: string) {
   if (!course) notFound();
 
   const students = await prisma.user.findMany({
-    where: { OR: [{ role: null }, { role: { not: "admin" } }] },
+    where: { OR: [{ role: null }, { role: { notIn: ["admin", "teacher"] } }] },
     orderBy: [{ name: "asc" }, { email: "asc" }],
     select: { id: true, name: true, email: true },
   });
 
-  return { ...course, students };
+  return { ...course, instructors: course.instructors.map(({ user }) => user), students };
 }
 
 export type TAdminGetCourseAssignments = Awaited<

@@ -2,12 +2,15 @@ import "server-only";
 
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
-import { requireAdmin } from "./require-admin";
+import { requireTeacher } from "@/app/data/teacher/require-teacher";
 
 export async function adminGetChapter(chapterId: string) {
-  await requireAdmin();
-  const chapter = await prisma.courseChapter.findUnique({
-    where: { id: chapterId },
+  const session = await requireTeacher();
+  const managedCourseIds = session.user.role === "admin"
+    ? null
+    : (await prisma.courseInstructor.findMany({ where: { userId: session.user.id }, select: { courseId: true } })).map((row) => row.courseId);
+  const chapter = await prisma.courseChapter.findFirst({
+    where: { id: chapterId, ...(managedCourseIds ? { courseId: { in: managedCourseIds } } : {}) },
     select: {
       id: true,
       title: true,

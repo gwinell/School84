@@ -2,7 +2,7 @@ import "server-only";
 
 import prisma from "@/lib/prisma";
 import { getDownloadUrl } from "@/lib/s3/get-download-url";
-import { requireAdmin } from "./require-admin";
+import { requireTeacher } from "@/app/data/teacher/require-teacher";
 import { notFound } from "next/navigation";
 
 async function signInlineImages(textContent: string | null) {
@@ -52,13 +52,17 @@ type TAdminGetLessonProps = {
 };
 
 export async function adminGetLesson({ id }: TAdminGetLessonProps) {
-  await requireAdmin();
+  const session = await requireTeacher();
+  const managedCourseIds = session.user.role === "admin"
+    ? null
+    : (await prisma.courseInstructor.findMany({ where: { userId: session.user.id }, select: { courseId: true } })).map((row) => row.courseId);
+  const scopedWhere = { id, ...(managedCourseIds ? { chapter: { courseId: { in: managedCourseIds } } } : {}) };
 
   // Preserve KnowSphere lessons created before the cell editor existed.
   // Their notes and quiz are moved into ordered cells the first time an
   // administrator opens the editor.
-  const legacyLesson = await prisma.lesson.findUnique({
-    where: { id },
+  const legacyLesson = await prisma.lesson.findFirst({
+    where: scopedWhere,
     select: {
       description: true,
       cells: { select: { id: true, position: true, type: true } },
@@ -106,8 +110,8 @@ export async function adminGetLesson({ id }: TAdminGetLessonProps) {
     }
   }
 
-  const data = await prisma.lesson.findUnique({
-    where: { id },
+  const data = await prisma.lesson.findFirst({
+    where: scopedWhere,
     select: {
       title: true,
       videoKey: true,

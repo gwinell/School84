@@ -59,7 +59,7 @@ test('manual completion validates hostile runtime inputs', async () => {
 
 const cellAction = 'app/dashboard/courses/[slug]/(lesson)/[lessonId]/cell-progress-actions.ts';
 function quizProgress() {
-  let writes = 0;
+  let writes = 0; const attempts = [];
   const db = {
     lessonCell: {
       findUnique: async () => ({ id: 'quiz-cell', lessonId: 'lesson', type: 'QUIZ', quiz: { questions: [
@@ -70,15 +70,22 @@ function quizProgress() {
     },
     enrollment: { findUnique: async () => ({ status: 'Active', accessMode: 'ALL_AT_ONCE' }) },
     lessonCellProgress: { upsert: async () => { writes++; }, count: async () => 1 },
+    quizAttempt: { create: async ({ data }) => { attempts.push(data); } },
     lessonProgress: { upsert: async () => {} },
     $transaction: async (fn) => fn(db),
   };
-  return { action: load(cellAction, { '@/lib/prisma': db, '@/lib/course-access': { canAccessAssignedLesson: async () => true } }).passLessonCellAction, writes: () => writes };
+  return { action: load(cellAction, { '@/lib/prisma': db, '@/lib/course-access': { canAccessAssignedLesson: async () => true } }).passLessonCellAction, writes: () => writes, attempts };
 }
 test('quiz completion rejects absent, wrong, omitted and duplicate answers', async () => {
   for (const answers of [undefined, {}, { q1: ['wrong'], q2: ['a2', 'a3'] }, { q1: ['a1'] }, { q1: ['a1'], q2: ['a2', 'a2'] }]) {
     const q = quizProgress(); assert.equal((await q.action({ cellId: 'quiz-cell', quizAnswers: answers })).status, 'error'); assert.equal(q.writes(), 0);
   }
+  const attempted = quizProgress();
+  await attempted.action({ cellId: 'quiz-cell', quizAnswers: { q1: ['wrong'], q2: ['a2', 'a3'] } });
+  assert.equal(attempted.attempts.length, 1);
+  assert.equal(attempted.attempts[0].passed, false);
+  assert.equal(attempted.attempts[0].score, 1);
+  assert.equal('isCorrect' in attempted.attempts[0].selectedAnswers[0], false);
 });
 test('quiz completion accepts all correct answers checked server-side', async () => {
   const q = quizProgress(); assert.equal((await q.action({ cellId: 'quiz-cell', quizAnswers: { q1: ['a1'], q2: ['a3', 'a2'] } })).status, 'success'); assert.equal(q.writes(), 1);
@@ -123,7 +130,7 @@ test('legacy quiz fetch enforces sequential lesson access', async () => {
 
 function s3(fail) {
   let recordsRemoved = 0; let deletes = 0;
-  const db = { pendingUpload: { findUnique: async () => ({ userId: 'student' }), findMany: async () => [{ key: 'orphan' }], delete: async () => { recordsRemoved++; } } };
+  const db = { pendingUpload: { findUnique: async () => ({ userId: 'student', courseId: null }), findMany: async () => [{ key: 'orphan' }], delete: async () => { recordsRemoved++; } } };
   const subject = load('lib/s3/discard-upload.ts', { '@/lib/prisma': db, '@/lib/env': { env: { NEXT_PUBLIC_S3_BUCKET_NAME_IMAGES: 'bucket' } }, '@/lib/S3Client': { S3Client: { send: async () => { deletes++; if (fail) throw Error('S3 unavailable'); } } }, '@aws-sdk/client-s3': { DeleteObjectCommand: class {} } });
   return { module: subject, recordsRemoved: () => recordsRemoved, deletes: () => deletes };
 }
@@ -137,7 +144,8 @@ function uploadRoute() {
     '@aws-sdk/client-s3': { PutObjectCommand: class { constructor() { commands++; } } },
     '@aws-sdk/s3-request-presigner': { getSignedUrl: async () => { signatures++; return 'signed:upload'; } },
     '@/lib/arcjet': { __esModule: true, default: { withRule() { return this; }, protect: async () => ({ isDenied: () => false }) }, detectBot: () => ({}), fixedWindow: () => ({}) },
-    '@/app/data/admin/require-admin': { requireAdmin: async () => ({ user: { id: 'admin' } }) },
+    '@/app/data/user/require-user': { requireUser: async () => ({ user: { id: 'admin', role: 'admin' } }) },
+    '@/app/api/s3/course-access': { canAccessUploadCourse: async () => true },
     '@/lib/prisma': { pendingUpload: { upsert: async (input) => { writes.push(input); } } },
   });
   return { subject, commands: () => commands, signatures: () => signatures, writes };

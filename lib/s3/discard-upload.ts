@@ -11,12 +11,13 @@ export type DiscardResult = "deleted" | "not-owned" | "missing";
 export async function discardUpload(
   key: string,
   userId: string,
+  courseId?: string,
 ): Promise<DiscardResult> {
   if (!key) return "missing";
 
   const row = await prisma.pendingUpload.findUnique({
     where: { key },
-    select: { userId: true },
+    select: { userId: true, courseId: true },
   });
 
   if (!row) {
@@ -24,6 +25,12 @@ export async function discardUpload(
   }
 
   if (row.userId !== userId) {
+    return "not-owned";
+  }
+
+  // A teacher may only discard uploads created in a course they can manage.
+  // Admin callers omit courseId and retain the existing global cleanup path.
+  if (courseId && row.courseId !== courseId) {
     return "not-owned";
   }
 
@@ -36,9 +43,10 @@ export async function discardUpload(
 export async function discardUploads(
   keys: string[],
   userId: string,
+  courseId?: string,
 ): Promise<{ key: string; result: DiscardResult }[]> {
   return Promise.all(
-    keys.map(async (key) => ({ key, result: await discardUpload(key, userId) })),
+    keys.map(async (key) => ({ key, result: await discardUpload(key, userId, courseId) })),
   );
 }
 

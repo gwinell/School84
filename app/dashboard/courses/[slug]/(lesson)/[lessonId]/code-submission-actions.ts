@@ -40,7 +40,7 @@ function safeText(value: string | null | undefined) {
   return value?.slice(0, 8_000) ?? null;
 }
 
-export async function submitCodeTaskAction(input: unknown): Promise<tApiResponse<SubmissionResult | null>> {
+export async function submitCodeTaskAction(input: unknown): Promise<tApiResponse<(SubmissionResult & { id: string }) | null>> {
   const session = await requireUser();
   const parsed = submitSchema.safeParse(input);
   if (!parsed.success) return errorResponse("Проверьте код и попробуйте снова", null);
@@ -238,5 +238,5 @@ export async function submitCodeTaskAction(input: unknown): Promise<tApiResponse
   revalidatePath(`/dashboard/courses/${course.slug}/${cell.lessonId}`);
   revalidatePath(`/dashboard/courses/${course.slug}`);
   revalidatePath("/dashboard");
-  return successResponse("Решение проверено", result);
+  return successResponse("Решение проверено", { ...result, id: reservation.id });
 }

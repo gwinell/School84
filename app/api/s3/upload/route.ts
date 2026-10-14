@@ -6,7 +6,8 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { S3Client } from "@/lib/S3Client";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import arcjet, { detectBot, fixedWindow } from "@/lib/arcjet";
-import { requireAdmin } from "@/app/data/admin/require-admin";
+import { requireUser } from "@/app/data/user/require-user";
+import { canAccessUploadCourse } from "@/app/api/s3/course-access";
 import prisma from "@/lib/prisma";
 
 const fileUploadSchema = z.object({
@@ -14,6 +15,7 @@ const fileUploadSchema = z.object({
   contentType: z.string().min(1, { message: "Content type is required" }),
   size: z.number().min(1, { message: "Size is required" }),
   isImage: z.boolean().optional(),
+  courseId: z.string().min(1).optional(),
 });
 
 const MAX_IMAGE_BYTES = 3 * 1024 * 1024; // 3MB
@@ -60,7 +62,7 @@ const aj = arcjet
   );
 
 export async function POST(request: Request) {
-  const session = await requireAdmin();
+  const session = await requireUser();
 
   try {
     const decision = await aj.protect(request, {
@@ -80,6 +82,14 @@ export async function POST(request: Request) {
         { error: validation.error.message },
         { status: 400 },
       );
+    }
+
+    if (!(await canAccessUploadCourse({
+      role: session.user.role,
+      userId: session.user.id,
+      courseId: validation.data.courseId,
+    }))) {
+      return NextResponse.json({ error: "Course ID is required" }, { status: 403 });
     }
 
     const { fileName, contentType, size, isImage } = validation.data;
@@ -127,9 +137,11 @@ export async function POST(request: Request) {
       create: {
         key: uniqueKey,
         userId: session.user.id,
+        courseId: validation.data.courseId ?? null,
       },
       update: {
         userId: session.user.id,
+        courseId: validation.data.courseId ?? null,
         createdAt: new Date(),
       },
     });

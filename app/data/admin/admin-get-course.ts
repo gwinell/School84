@@ -2,11 +2,11 @@ import "server-only";
 
 import prisma from "@/lib/prisma";
 import { getDownloadUrl, getDownloadUrls } from "@/lib/s3/get-download-url";
-import { requireAdmin } from "./require-admin";
+import { requireCourseTeacher } from "@/app/data/teacher/require-course-teacher";
 import { notFound } from "next/navigation";
 
 export async function adminGetCourse(courseId: string) {
-  await requireAdmin();
+  await requireCourseTeacher(courseId);
 
   const course = await prisma.course.findUnique({
     where: {
