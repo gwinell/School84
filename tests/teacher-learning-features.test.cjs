@@ -374,7 +374,7 @@ test('resume position rejects locked sequential lessons and unrelated cell IDs',
     '@/app/data/user/require-user': { requireUser: async () => ({ user: { id: 'student-1', role: 'user' } }) },
     '@/lib/course-access': { canAccessAssignedLesson: async () => unlocked },
     '@/lib/prisma': {
-      lesson: { findUnique: async () => ({ id: 'lesson-1', chapter: { courseId: 'course-1', course: { slug: 'course', status: 'PUBLISHED' } }, cells: [{ id: 'cell-1' }] }) },
+      lesson: { findUnique: async () => ({ id: 'lesson-1', chapter: { courseId: 'course-1', course: { slug: 'course', status: 'PUBLISHED' } }, cells: [{ id: cellId }] }) },
       enrollment: { findUnique: async () => ({ status: 'Active', accessMode: 'SEQUENTIAL' }) },
       learningCursor: { upsert: async () => { writes++; } },
     },
