@@ -85,7 +85,10 @@ export async function getAssignableTeachers() {
   const session = await requireTeacher();
   if (session.user.role !== "admin") return [];
   return prisma.user.findMany({
-    where: { OR: [{ role: "teacher" }, { role: null }] },
+    // BetterAuth creates regular accounts with role="user". Include those
+    // candidates so admins can promote them when assigning a course teacher;
+    // retain null-role accounts created before role provisioning.
+    where: { OR: [{ role: "teacher" }, { role: "user" }, { role: null }] },
     orderBy: [{ name: "asc" }, { email: "asc" }],
     select: { id: true, name: true, email: true, role: true },
   });
