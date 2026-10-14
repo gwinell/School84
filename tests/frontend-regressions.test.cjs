@@ -74,6 +74,22 @@ const text = (tree) => typeof tree === "string" ? tree : Array.isArray(tree)
   ? tree.map(text).join("") : tree && typeof tree === "object" ? text(tree.props?.children) : "";
 const button = (tree, label) => find(tree, (node) => node.type === "Button" && text(node).includes(label));
 
+test("recent dashboard courses link to their existing admin edit pages", () => {
+  const h = load("app/admin/_components/analytics/RecentCourses.tsx", {
+    "next/link": { default: (props) => ({ type: "a", props }) },
+    "@/components/ui/button": { buttonVariants: () => "button" },
+  });
+  const courses = ["course-a", "course-b"].map((id) => ({
+    id, title: `Course ${id}`, imageUrl: null, status: "DRAFT",
+    level: "BEGINNER", duration: 30, createdAt: new Date(),
+  }));
+  const tree = h.render("RecentCourses", { courses });
+  for (const course of courses) {
+    const link = find(tree, (node) => node.type === "a" && text(node).includes(course.title), true);
+    assert.equal(link.props.href, `/admin/courses/${course.id}/edit`);
+  }
+});
+
 function heartbeat() {
   let now = 0;
   let tick;

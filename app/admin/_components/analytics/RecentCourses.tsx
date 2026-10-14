@@ -94,7 +94,7 @@ export function RecentCourses({ courses }: RecentCoursesProps) {
             {courses.map((course) => (
               <li key={course.id}>
                 <Link
-                  href={`/admin/courses/${course.id}`}
+                  href={`/admin/courses/${course.id}/edit`}
                   className="group flex items-center gap-3 rounded-lg px-2 py-3 transition-colors hover:bg-muted/50"
                 >
                   <div className="relative size-12 shrink-0 overflow-hidden rounded-md bg-muted">
