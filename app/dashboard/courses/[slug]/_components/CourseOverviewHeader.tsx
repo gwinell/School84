@@ -3,6 +3,7 @@ import { ChevronLeftIcon, PlayCircleIcon } from "lucide-react";
 
 import { CourseImage } from "@/components/general/CourseImage";
 import { Button } from "@/components/ui/button";
+import { getLearningLocationHref } from "@/app/dashboard/_lib/learning-links";
 
 interface CourseOverviewHeaderProps {
   slug: string;
@@ -10,6 +11,7 @@ interface CourseOverviewHeaderProps {
   smallDesc: string;
   imageUrl: string | null;
   resumeLessonId: string | null;
+  resumeCellId: string | null;
   hasStarted: boolean;
 }
 
@@ -19,6 +21,7 @@ export function CourseOverviewHeader({
   smallDesc,
   imageUrl,
   resumeLessonId,
+  resumeCellId,
   hasStarted,
 }: CourseOverviewHeaderProps) {
   return (
@@ -55,7 +58,7 @@ export function CourseOverviewHeader({
           size="lg"
           nativeButton={false}
           render={
-            <Link href={`/dashboard/courses/${slug}/${resumeLessonId}`} />
+            <Link href={getLearningLocationHref({ slug, lessonId: resumeLessonId, cellId: resumeCellId })} />
           }
         >
           <PlayCircleIcon className="size-4" />

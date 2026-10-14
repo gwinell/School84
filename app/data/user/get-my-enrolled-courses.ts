@@ -4,6 +4,7 @@ import prisma from "@/lib/prisma";
 import { getDownloadUrls } from "@/lib/s3/get-download-url";
 import { canAccessAssignedLesson } from "@/lib/course-access";
 import { requireUser } from "./require-user";
+import { resolveLearningTarget } from "@/app/dashboard/_lib/resolve-learning-target";
 
 export type tEnrolledCourse = {
   enrollmentId: string;
@@ -19,6 +20,7 @@ export type tEnrolledCourse = {
   completedCount: number;
   resumeLessonId: string | null;
   resumeCellId: string | null;
+  hasStarted: boolean;
 };
 
 export async function getMyEnrolledCourses(): Promise<tEnrolledCourse[]> {
@@ -83,13 +85,11 @@ export async function getMyEnrolledCourses(): Promise<tEnrolledCourse[]> {
     const completedCount = lessons.filter((lesson) => lesson.completed).length;
     const cursor = cursorByCourse.get(enrollment.course.id);
     const cursorLesson = cursor ? lessons.find((lesson) => lesson.id === cursor.lessonId) : undefined;
-    const cursorCell = cursorLesson?.cells.find((cell) => cell.id === cursor?.cellId);
     const cursorAllowed = cursorLesson && (session.user.role === "admin" || enrollment.accessMode !== "SEQUENTIAL" || await canAccessAssignedLesson({ userId: session.user.id, courseId: enrollment.course.id, lessonId: cursorLesson.id }));
-    const fallbackLesson = lessons.find((lesson) => !lesson.completed) ?? lessons[0];
-    const resumeLessonId = cursorAllowed ? cursorLesson!.id : fallbackLesson?.id ?? null;
-    const resumeCellId = cursorAllowed
-      ? cursorCell?.id ?? cursorLesson!.cells.find((cell) => !cell.passed)?.id ?? cursorLesson!.cells[0]?.id ?? null
-      : fallbackLesson?.cells.find((cell) => !cell.passed)?.id ?? fallbackLesson?.cells[0]?.id ?? null;
+    const target = resolveLearningTarget(
+      lessons,
+      cursorAllowed && cursor ? cursor : null,
+    );
 
     return {
       enrollmentId: enrollment.id,
@@ -103,8 +103,9 @@ export async function getMyEnrolledCourses(): Promise<tEnrolledCourse[]> {
       chaptersCount: chapters.length,
       lessonsCount,
       completedCount,
-      resumeLessonId,
-      resumeCellId,
+      resumeLessonId: target.lessonId,
+      resumeCellId: target.cellId,
+      hasStarted: target.hasStarted,
     };
   }));
 }

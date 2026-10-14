@@ -99,13 +99,20 @@ test('reading course never converts stale lesson completed flags to passed tasks
   const db = {
     course: { findUnique: async () => ({ id: 'course', title: 'Course', slug: 'course', smallDesc: '', fileKey: 'cover', status: 'PUBLISHED', courseChapters: [{ id: 'chapter', title: 'Chapter', position: 1, lessons }] }) },
     enrollment: { findUnique: async () => ({ status: 'Active', accessMode: 'SEQUENTIAL' }) },
+    learningCursor: { findUnique: async () => ({ lessonId: 'lesson2', cellId: 'cell2' }) },
     lessonCellProgress: { createMany: async ({ data }) => initialRows.push(...data), updateMany: async () => { updates++; }, findMany: async () => [] },
   };
-  const course = load(courseFile, { '@/lib/prisma': db, '@/lib/s3/get-download-url': { getDownloadUrl: async (key) => { signedKeys.push(key); return key ? `signed:${key}` : null; } }, '@/lib/course-access': { getSequentiallyUnlockedLessonIds: () => new Set(['lesson1']) } });
+  const course = load(courseFile, {
+    '@/lib/prisma': db,
+    '@/lib/s3/get-download-url': { getDownloadUrl: async (key) => { signedKeys.push(key); return key ? `signed:${key}` : null; } },
+    '@/lib/course-access': { getSequentiallyUnlockedLessonIds: () => new Set(['lesson1']) },
+    '@/app/dashboard/_lib/resolve-learning-target': load('app/dashboard/_lib/resolve-learning-target.ts'),
+  });
   const result = await course.getCourseForLearning({ slug: 'course', currentLessonId: 'lesson2' });
   assert.ok(initialRows.every((r) => r.status !== 'PASSED')); assert.equal(updates, 0);
   assert.ok(!signedKeys.includes('video2'));
   const locked = result.courseChapters[0].lessons[1]; assert.equal(locked.videoUrl, null); assert.equal(locked.description, null); assert.equal(locked.cells[0].taskPrompt, null);
+  assert.equal(result.resumeLessonId, 'lesson1'); assert.equal(result.resumeCellId, 'cell1');
 });
 
 test('certificate rejects stale lesson completion when current cells remain unpassed', async () => {

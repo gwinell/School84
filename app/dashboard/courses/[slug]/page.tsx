@@ -14,11 +14,7 @@ export default async function CourseLearnOverviewPage({ params }: PageParams) {
   const { slug } = await params;
   const course = await getCourseForLearning({ slug });
 
-  const lessons = course.courseChapters.flatMap((chapter) => chapter.lessons);
-  const totalLessons = lessons.length;
-  const completedCount = lessons.filter((lesson) => lesson.completed).length;
-  const resumeLessonId =
-    lessons.find((lesson) => !lesson.completed)?.id ?? lessons[0]?.id ?? null;
+  const totalLessons = course.courseChapters.reduce((count, chapter) => count + chapter.lessons.length, 0);
 
   return (
     <div className="flex flex-1 flex-col space-y-6">
@@ -27,8 +23,9 @@ export default async function CourseLearnOverviewPage({ params }: PageParams) {
         title={course.title}
         smallDesc={course.smallDesc}
         imageUrl={course.imageUrl}
-        resumeLessonId={resumeLessonId}
-        hasStarted={completedCount > 0}
+        resumeLessonId={course.resumeLessonId}
+        resumeCellId={course.resumeCellId}
+        hasStarted={course.resumeHasStarted}
       />
 
       {totalLessons === 0 ? (

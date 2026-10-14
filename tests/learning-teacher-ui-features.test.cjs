@@ -81,9 +81,43 @@ test('Continue link resumes the saved lesson and cell and safely encodes URL val
   const card = load('app/dashboard/_components/EnrolledCourseCard.tsx', {
     '@/app/dashboard/_lib/learning-links': links.exports,
   });
-  const course = { id: 'course-1', slug: 'python', title: 'Python', smallDesc: '', imageUrl: null, level: 'BEGINNER', duration: 30, chaptersCount: 1, lessonsCount: 2, completedCount: 1, resumeLessonId: 'lesson-2', resumeCellId: 'cell-4' };
+  const course = { id: 'course-1', slug: 'python', title: 'Python', smallDesc: '', imageUrl: null, level: 'BEGINNER', duration: 30, chaptersCount: 1, lessonsCount: 2, completedCount: 0, hasStarted: true, resumeLessonId: 'lesson-2', resumeCellId: 'cell-4' };
   const link = find(card.render('EnrolledCourseCard', { course }), (node) => node.type === 'Link' && node.props.children?.[0] === 'Continue');
   assert.equal(link.props.href, '/dashboard/courses/python/lesson-2?cellId=cell-4');
+  assert.equal(link.props.children[0], 'Continue');
+});
+
+test('saved learning target is shared, preserves an open cell, and rejects a now-locked cursor', () => {
+  const resolver = load('app/dashboard/_lib/resolve-learning-target.ts').exports.resolveLearningTarget;
+  const lessons = [
+    { id: 'lesson-1', completed: true, isUnlocked: true, cells: [{ id: 'cell-1', status: 'PASSED' }] },
+    { id: 'lesson-2', completed: false, isUnlocked: true, cells: [
+      { id: 'cell-2', status: 'PASSED' }, { id: 'cell-3', status: 'IN_PROGRESS' },
+    ] },
+    { id: 'lesson-3', completed: false, isUnlocked: false, cells: [{ id: 'cell-4', status: 'LOCKED' }] },
+  ];
+  assert.deepEqual(plain(resolver(lessons, { lessonId: 'lesson-2', cellId: 'cell-3' })), {
+    lessonId: 'lesson-2', cellId: 'cell-3', hasStarted: true,
+  });
+  assert.deepEqual(plain(resolver(lessons, { lessonId: 'lesson-3', cellId: 'cell-4' })), {
+    lessonId: 'lesson-2', cellId: 'cell-3', hasStarted: true,
+  });
+  assert.deepEqual(plain(resolver([{ id: 'lesson-1', completed: false, cells: [{ id: 'cell-1' }] }], null)), {
+    lessonId: 'lesson-1', cellId: 'cell-1', hasStarted: false,
+  });
+});
+
+test('course overview Continue button resumes the saved cell as well as the lesson', () => {
+  const links = load('app/dashboard/_lib/learning-links.ts').exports;
+  const header = load('app/dashboard/courses/[slug]/_components/CourseOverviewHeader.tsx', {
+    '@/app/dashboard/_lib/learning-links': links,
+  });
+  const tree = header.render('CourseOverviewHeader', {
+    slug: 'python', title: 'Python', smallDesc: '', imageUrl: null,
+    resumeLessonId: 'lesson-2', resumeCellId: 'cell-3', hasStarted: true,
+  });
+  const continueButton = find(tree, (node) => node.type === 'Button' && node.props.render?.props?.href?.includes('/lesson-2'));
+  assert.equal(continueButton.props.render.props.href, '/dashboard/courses/python/lesson-2?cellId=cell-3');
 });
 
 test('bulk course assignment normalizes and deduplicates emails before the action call', async () => {

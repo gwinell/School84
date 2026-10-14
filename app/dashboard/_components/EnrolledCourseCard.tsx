@@ -31,7 +31,7 @@ export function EnrolledCourseCard({ course }: EnrolledCourseCardProps) {
     lessonId: course.resumeLessonId,
     cellId: (course as typeof course & { resumeCellId?: string | null }).resumeCellId,
   });
-  const hasStarted = course.completedCount > 0;
+  const hasStarted = course.hasStarted;
 
   const lessonWord = course.lessonsCount === 1 ? "lesson" : "lessons";
   const chapterWord = course.chaptersCount === 1 ? "chapter" : "chapters";

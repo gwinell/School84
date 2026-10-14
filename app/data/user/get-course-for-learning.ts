@@ -6,6 +6,7 @@ import prisma from "@/lib/prisma";
 import { getDownloadUrl } from "@/lib/s3/get-download-url";
 import { getSequentiallyUnlockedLessonIds } from "@/lib/course-access";
 import { requireUser } from "./require-user";
+import { resolveLearningTarget } from "@/app/dashboard/_lib/resolve-learning-target";
 
 export type tCourseForLearningLesson = {
   id: string;
@@ -80,6 +81,9 @@ export type tCourseForLearning = {
   imageUrl: string | null;
   status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
   accessMode: "ALL_AT_ONCE" | "SEQUENTIAL";
+  resumeLessonId: string | null;
+  resumeCellId: string | null;
+  resumeHasStarted: boolean;
   courseChapters: tCourseForLearningChapter[];
 };
 
@@ -277,6 +281,23 @@ export async function getCourseForLearning({
         cellStatusById,
       );
 
+  const cursor = await prisma.learningCursor.findUnique({
+    where: { userId_courseId: { userId: session.user.id, courseId: course.id } },
+    select: { lessonId: true, cellId: true },
+  });
+  const learningTarget = resolveLearningTarget(
+    courseLessons.map((lesson) => ({
+      id: lesson.id,
+      completed: lesson.lessonProgress[0]?.completed ?? false,
+      isUnlocked: unlockedLessonIds.has(lesson.id),
+      cells: lesson.cells.map((cell) => ({
+        id: cell.id,
+        status: cellStatusById.get(cell.id) ?? (unlockedLessonIds.has(lesson.id) ? "AVAILABLE" : "LOCKED"),
+      })),
+    })),
+    cursor,
+  );
+
   const lessons = course.courseChapters.flatMap((c) => c.lessons);
 
   const currentVideoKey = currentLessonId && unlockedLessonIds.has(currentLessonId)
@@ -296,6 +317,9 @@ export async function getCourseForLearning({
     imageUrl,
     status: course.status,
     accessMode,
+    resumeLessonId: learningTarget.lessonId,
+    resumeCellId: learningTarget.cellId,
+    resumeHasStarted: learningTarget.hasStarted,
     courseChapters: await Promise.all(course.courseChapters.map(async (chapter) => ({
       id: chapter.id,
       title: chapter.title,
