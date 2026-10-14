@@ -18,7 +18,6 @@ export type GradebookCodeSubmission = {
   isLate?: boolean;
   lessonCell: { title: string | null; lesson: { title: string } };
   feedback: GradebookFeedback;
-  isLate?: boolean;
 };
 export type GradebookQuizAttempt = {
   id: string;
@@ -28,6 +27,7 @@ export type GradebookQuizAttempt = {
   total: number;
   passed: boolean;
   submittedAt: Date | string;
+  isLate?: boolean;
   lessonCell: { title: string | null; lesson: { title: string } };
   feedback: GradebookFeedback;
 };
