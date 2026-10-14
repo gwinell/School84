@@ -34,17 +34,38 @@ VALUES (
 ON CONFLICT (email) DO UPDATE
 SET name = 'Демо Ученик', role = 'user', "emailVerified" = true;
 
+INSERT INTO organization (id, name, slug, "createdAt", "updatedAt")
+VALUES (
+  'school84-demo-school', 'Школа School 84', 'school84-demo-school', now(), now()
+)
+ON CONFLICT (slug) DO UPDATE
+SET name = EXCLUDED.name, "updatedAt" = now();
+
+INSERT INTO organization_membership ("organizationId", "userId", role, "createdAt")
+SELECT organization.id, "user".id, 'OWNER', now()
+FROM organization CROSS JOIN "user"
+WHERE organization.slug = 'school84-demo-school' AND "user".email = 'admin@school84.local'
+ON CONFLICT ("organizationId", "userId") DO UPDATE SET role = 'OWNER';
+
+INSERT INTO organization_membership ("organizationId", "userId", role, "createdAt")
+SELECT organization.id, "user".id, 'STUDENT', now()
+FROM organization CROSS JOIN "user"
+WHERE organization.slug = 'school84-demo-school' AND "user".email = 'student@school84.local'
+ON CONFLICT ("organizationId", "userId") DO UPDATE SET role = 'STUDENT';
+
 INSERT INTO "Course" (
   id, title, description, "smallDesc", "priceCents", duration, level, slug,
-  status, "createdAt", "updatedAt", "userId"
+  status, "organizationId", "createdAt", "updatedAt", "userId"
 )
 VALUES (
   'school84-demo-python', 'Python с нуля: от первых строк к проектам',
   '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Пошаговый курс по материалам учебных блокнотов: 9 тем, 16 уроков, короткие конспекты, задачи с автопроверкой и квизы. Изучите основы Python и постепенно соберите навыки для небольших проектов."}]}]}',
   '16 уроков: конспекты, практика с автопроверкой и квизы', 0, 540, 'BEGINNER',
-  'school84-demo-python', 'PUBLISHED', now(), now(), 'school84-local-admin'
+  'school84-demo-python', 'PUBLISHED',
+  (SELECT id FROM organization WHERE slug = 'school84-demo-school'), now(), now(),
+  (SELECT id FROM "user" WHERE email = 'admin@school84.local')
 )
-ON CONFLICT (slug) DO UPDATE SET
+ON CONFLICT ("organizationId", slug) DO UPDATE SET
   title = EXCLUDED.title,
   description = EXCLUDED.description,
   "smallDesc" = EXCLUDED."smallDesc",

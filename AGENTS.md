@@ -88,3 +88,13 @@ Notes for OpenCode sessions working in this repo.
 - Local stack binds only to loopback port 3001; unrelated port 3000 is untouched. Review a temporary candidate on loopback 3002 before replacing the local stack.
 - Runner owns the trusted local Docker socket, has a healthcheck and resource bounds, and uses authenticated requests to create disposable restricted sandboxes. Socket access remains host-control capability; this is not an internet-facing service.
 - Release only after tests and scoped security validation pass. Back up the DB, retain image IDs, smoke-check health/auth/runner/UI, and roll back images if checks fail. Never re-seed during a release.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+## This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

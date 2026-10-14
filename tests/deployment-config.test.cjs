@@ -35,3 +35,16 @@ test('remote HTTPS storage image allowlist permits only the configured bucket ho
 test('unsupported storage protocols fail early instead of broadening image access', () => {
   assert.throws(() => imageConfig('ftp://storage.example.test', 'bucket'), /HTTP or HTTPS/);
 });
+
+test('fresh-install demo seed creates school memberships before the tenant-scoped course', () => {
+  const seed = fs.readFileSync(path.join(__dirname, '..', 'scripts/local-admin.sql'), 'utf8');
+  const organization = seed.indexOf('INSERT INTO organization (');
+  const memberships = seed.indexOf('INSERT INTO organization_membership');
+  const course = seed.indexOf('INSERT INTO "Course" (');
+
+  assert.ok(organization >= 0 && memberships > organization && course > memberships);
+  assert.match(seed, /SELECT organization\.id, "user"\.id, 'OWNER'/);
+  assert.match(seed, /SELECT organization\.id, "user"\.id, 'STUDENT'/);
+  assert.match(seed, /"organizationId", "createdAt", "updatedAt", "userId"/);
+  assert.match(seed, /ON CONFLICT \("organizationId", slug\)/);
+});
