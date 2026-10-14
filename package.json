@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "postinstall": "prisma generate",
     "test": "node --test tests/*.test.cjs",
-    "test:security": "node --test tests/teacher-features.test.cjs tests/teacher-learning-features.test.cjs tests/teacher-rsc-boundaries.test.cjs tests/deployment-config.test.cjs",
+    "test:security": "node --test tests/teacher-features.test.cjs tests/teacher-learning-features.test.cjs tests/teacher-rsc-boundaries.test.cjs tests/organization-actions.test.cjs tests/organization-isolation.test.cjs tests/tenant-assignment.test.cjs tests/deployment-config.test.cjs",
     "test:runner": "python3 -m unittest discover -s tests -p 'test_runner_security.py' -v",
     "test:tenant": "node --test tests/tenant-postgres.test.cjs"
   },
