@@ -4,6 +4,7 @@ import { ArrowRightIcon, BookOpenIcon } from "lucide-react";
 import { adminGetTeachingCourses } from "@/app/data/teacher/get-course-gradebook";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Brand } from "@/components/brand";
 
 export default async function TeacherHomePage() {
   const courses = await adminGetTeachingCourses();
@@ -14,9 +15,9 @@ export default async function TeacherHomePage() {
     </div>
     {courses.length ? <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
       {courses.map((course) => <Card key={course.id}>
-        <CardHeader><CardTitle className="line-clamp-2">{course.title}</CardTitle></CardHeader>
+        <CardHeader className="space-y-2"><Brand brand={course.organization} markClassName="size-6" nameClassName="text-sm" /><CardTitle className="line-clamp-2">{course.title}</CardTitle></CardHeader>
         <CardContent className="flex items-center justify-between gap-3">
-          <span className="inline-flex items-center gap-2 text-sm text-muted-foreground"><BookOpenIcon className="size-4" />{course.status}</span>
+          <Link className="inline-flex items-center gap-1 text-sm text-muted-foreground underline-offset-4 hover:underline" href={`/schools/${encodeURIComponent(course.organization.slug)}/courses`}>Курсы школы<BookOpenIcon className="size-4" /></Link>
           <Link className={buttonVariants({ size: "sm" })} href={`/teacher/courses/${course.id}`}>Журнал <ArrowRightIcon /></Link>
         </CardContent>
       </Card>)}

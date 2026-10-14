@@ -82,10 +82,84 @@ test('Continue link resumes the saved lesson and cell and safely encodes URL val
   const card = load('app/dashboard/_components/EnrolledCourseCard.tsx', {
     '@/app/dashboard/_lib/learning-links': links.exports,
   });
-  const course = { id: 'course-1', slug: 'python', title: 'Python', smallDesc: '', imageUrl: null, level: 'BEGINNER', duration: 30, chaptersCount: 1, lessonsCount: 2, completedCount: 0, hasStarted: true, resumeLessonId: 'lesson-2', resumeCellId: 'cell-4' };
-  const link = find(card.render('EnrolledCourseCard', { course }), (node) => node.type === 'Link' && node.props.children?.[0] === 'Continue');
-  assert.equal(link.props.href, '/dashboard/courses/python/lesson-2?cellId=cell-4');
-  assert.equal(link.props.children[0], 'Continue');
+  const course = { id: 'course-1', slug: 'python', organizationSlug: 'lyceum-5', title: 'Python', smallDesc: '', imageUrl: null, level: 'BEGINNER', duration: 30, chaptersCount: 1, lessonsCount: 2, completedCount: 0, hasStarted: true, resumeLessonId: 'lesson-2', resumeCellId: 'cell-4' };
+  const link = find(card.render('EnrolledCourseCard', { course }), (node) => node.type === 'Link' && node.props.children?.[0] === 'Продолжить');
+  assert.equal(link.props.href, '/dashboard/schools/lyceum-5/courses/python/lesson-2?cellId=cell-4');
+  assert.equal(link.props.children[0], 'Продолжить');
+  assert.match(text(card.render('EnrolledCourseCard', { course })), /0\s+из\s+2\s+урока/);
+});
+
+test('learner sidebar offers each membership school and teaching access even when the global role is regular user', () => {
+  const h = load('app/dashboard/_components/DashboardSidebar.tsx', {
+    'next/navigation': { usePathname: () => '/dashboard' },
+    '@/components/brand': { Brand: 'Brand' },
+  });
+  const schoolProps = [
+    { name: 'Лицей 5', slug: 'lyceum-5', logoUrl: null, primaryColor: '#124a73' },
+    { name: 'Школа № 42', slug: 'school 42', logoUrl: '/school.svg', primaryColor: null },
+  ];
+  const tree = h.render('DashboardSidebar', {
+    role: 'user', hasTeachingAccess: true,
+    schools: schoolProps,
+  });
+  const schoolNav = h.render('SchoolNavigation', { schools: schoolProps, pathname: '/dashboard' });
+  const buttons = nodes(schoolNav).filter((node) => node.type === 'SidebarMenuButton');
+  const hrefs = buttons.map((node) => node.props.render?.props?.href).filter(Boolean);
+  assert.ok(hrefs.includes('/schools/lyceum-5/courses'));
+  assert.ok(hrefs.includes('/schools/school%2042/courses'));
+  const nav = find(tree, (node) => node.type?.name === 'NavMain');
+  assert.ok(nav.props.items.some((item) => item.url === '/teacher' && item.title === 'Преподавание'));
+  assert.ok(nav.props.items.some((item) => item.url === '/dashboard/schools' && item.title === 'Мои школы'));
+  assert.match(text(schoolNav), /Школы/);
+});
+
+test('school management issues the selected role invite, exposes a copyable one-time link, and limits admin invite option to owners', async () => {
+  const invites = [];
+  const copied = [];
+  const h = load('app/dashboard/schools/_components/SchoolManagement.tsx', {
+    '@/app/data/organization/actions': {
+      createOrganization: async () => ({ status: 'success', message: 'created' }),
+      createOrganizationInvitation: async (input) => { invites.push(input); return { status: 'success', message: 'created', data: { inviteUrl: 'https://school.example.test/school-invite/token' } }; },
+      removeOrganizationMember: async () => ({ status: 'success' }),
+      updateOrganizationMemberRole: async () => ({ status: 'success' }),
+    },
+    '@/components/brand': { Brand: 'Brand' },
+    sonner: { toast: { error() {}, success() {} } },
+  }, { navigator: { clipboard: { writeText: async (url) => copied.push(url) } }, window: { location: { reload() {} } } });
+  const schools = [
+    { id: 'owner-school', name: 'Лицей 5', slug: 'lyceum-5', logoUrl: null, primaryColor: null, role: 'OWNER', members: [] },
+    { id: 'admin-school', name: 'Школа 42', slug: 'school-42', logoUrl: null, primaryColor: null, role: 'ADMIN', members: [] },
+  ];
+  let tree = h.render('SchoolManagement', { schools });
+  const ownerRole = find(tree, (node) => node.type === 'select' && node.props.id === 'invite-role-owner-school');
+  assert.match(text(ownerRole), /Администратор/);
+  const adminRole = find(tree, (node) => node.type === 'select' && node.props.id === 'invite-role-admin-school');
+  assert.doesNotMatch(text(adminRole), /Администратор/);
+  const emailInput = find(tree, (node) => node.type === 'Input' && node.props.id === 'invite-email-owner-school');
+  emailInput.props.onChange({ target: { value: ' Teacher@Example.test ' } });
+  ownerRole.props.onChange({ target: { value: 'TEACHER' } });
+  tree = h.render('SchoolManagement', { schools });
+  const inviteForm = nodes(tree).find((node) => node.type === 'form' && nodes(node).some((child) => child.props?.id === 'invite-email-owner-school'));
+  submit(inviteForm);
+  await h.flush();
+  assert.deepEqual(plain(invites), [{ organizationId: 'owner-school', email: 'teacher@example.test', role: 'TEACHER' }]);
+  tree = h.render('SchoolManagement', { schools });
+  const inviteUrl = find(tree, (node) => node.type === 'Input' && node.props['aria-label'] === 'Ссылка приглашения');
+  assert.equal(inviteUrl.props.value, 'https://school.example.test/school-invite/token');
+  await find(tree, (node) => node.type === 'Button' && text(node).includes('Копировать ссылку')).props.onClick();
+  assert.deepEqual(copied, ['https://school.example.test/school-invite/token']);
+});
+
+test('teacher course cards identify their school and open its tenant-specific course catalogue', async () => {
+  const courses = [{ id: 'course-a', title: 'Алгебра', slug: 'algebra', status: 'PUBLISHED', organization: { id: 'school-a', name: 'Лицей 5', slug: 'lyceum-5', logoUrl: '/lyceum.svg', primaryColor: '#123456' } }];
+  const h = load('app/teacher/page.tsx', {
+    '@/app/data/teacher/get-course-gradebook': { adminGetTeachingCourses: async () => courses },
+    '@/components/brand': { Brand: 'Brand' },
+  });
+  const tree = await h.render('default', {});
+  const schoolBrand = find(tree, (node) => node.type === 'Brand' && node.props.brand?.slug === 'lyceum-5');
+  assert.equal(schoolBrand.props.brand.name, 'Лицей 5');
+  assert.ok(nodes(tree).some((node) => node.type === 'Link' && node.props.href === '/schools/lyceum-5/courses'));
 });
 
 test('saved learning target is shared, preserves an open cell, and rejects a now-locked cursor', () => {

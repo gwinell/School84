@@ -13,16 +13,26 @@ interface EnrolledCourseCardProps {
 }
 
 function formatLevel(level: tEnrolledCourse["level"]): string {
-  return level.charAt(0) + level.slice(1).toLowerCase();
+  return ({ BEGINNER: "Начальный", INTERMEDIATE: "Средний", ADVANCED: "Продвинутый" } as const)[level];
 }
 
 function formatDuration(minutes: number): string {
-  if (!minutes || minutes <= 0) return "0 min";
+  if (!minutes || minutes <= 0) return "0 мин";
   const hours = Math.floor(minutes / 60);
   const mins = minutes % 60;
-  if (hours === 0) return `${mins} min`;
-  if (mins === 0) return `${hours}h`;
-  return `${hours}h ${mins}min`;
+  if (hours === 0) return `${mins} мин`;
+  if (mins === 0) return `${hours} ч`;
+  return `${hours} ч ${mins} мин`;
+}
+
+function russianCount(value: number, forms: [string, string, string]): string {
+  const absolute = Math.abs(value);
+  const lastTwo = absolute % 100;
+  if (lastTwo >= 11 && lastTwo <= 14) return forms[2];
+  const last = absolute % 10;
+  if (last === 1) return forms[0];
+  if (last >= 2 && last <= 4) return forms[1];
+  return forms[2];
 }
 
 export function EnrolledCourseCard({ course }: EnrolledCourseCardProps) {
@@ -34,8 +44,8 @@ export function EnrolledCourseCard({ course }: EnrolledCourseCardProps) {
   });
   const hasStarted = course.hasStarted;
 
-  const lessonWord = course.lessonsCount === 1 ? "lesson" : "lessons";
-  const chapterWord = course.chaptersCount === 1 ? "chapter" : "chapters";
+  const lessonWord = russianCount(course.lessonsCount, ["урок", "урока", "уроков"]);
+  const chapterWord = russianCount(course.chaptersCount, ["раздел", "раздела", "разделов"]);
 
   return (
     <Card className="group flex flex-col overflow-hidden pt-0">
@@ -77,14 +87,14 @@ export function EnrolledCourseCard({ course }: EnrolledCourseCardProps) {
 
         <div className="mt-auto flex items-center justify-between border-t pt-4">
           <span className="text-xs text-muted-foreground tabular-nums">
-            {course.completedCount} of {course.lessonsCount} {lessonWord}
+              {course.completedCount} из {course.lessonsCount} {lessonWord}
           </span>
           <Link
             href={continueHref}
             className={buttonVariants({ size: "sm" })}
           >
-            {hasStarted ? "Continue" : "Start course"}
-            <ArrowRightIcon className="size-4" />
+            {hasStarted ? "Продолжить" : "Начать курс"}
+            <ArrowRightIcon className="size-4" aria-hidden />
           </Link>
         </div>
       </CardContent>

@@ -9,7 +9,7 @@ export default async function SchoolsPage() {
     members: role === "OWNER" || role === "ADMIN" ? await getOrganizationMembers(organization.id) : [],
   })));
   return <div className="mx-auto w-full max-w-5xl space-y-6">
-    <div><h1 className="text-2xl font-bold">Your schools</h1><p className="text-sm text-muted-foreground">Create a school or manage its members and courses.</p></div>
+    <div><h1 className="text-2xl font-bold">Мои школы</h1><p className="text-sm text-muted-foreground">Выберите школу для просмотра курсов или управляйте участниками, если у вас есть права администратора.</p></div>
     <SchoolManagement schools={schools} />
   </div>;
 }
