@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 
 import { requireUser } from "@/app/data/user/require-user";
 import { canAccessAssignedLesson } from "@/lib/course-access";
@@ -10,16 +11,26 @@ import type { tApiResponse } from "@/types/api";
 
 export async function passLessonCellAction({
   cellId,
+  quizAnswers,
 }: {
   cellId: string;
+  quizAnswers?: Record<string, string[]>;
 }): Promise<tApiResponse<{ nextCellId: string | null } | null>> {
   const session = await requireUser();
+  const input = z.object({
+    cellId: z.string().min(1),
+    quizAnswers: z.record(z.string(), z.array(z.string().min(1)).max(100)).optional(),
+  }).safeParse({ cellId, quizAnswers });
+  if (!input.success) return errorResponse("Invalid cell progress", null);
   const cell = await prisma.lessonCell.findUnique({
     where: { id: cellId },
     select: {
       id: true,
       lessonId: true,
       type: true,
+      quiz: { select: { questions: { select: {
+        id: true, answers: { select: { id: true, isCorrect: true } },
+      } } } },
       lesson: {
         select: {
           chapter: {
@@ -60,6 +71,17 @@ export async function passLessonCellAction({
     ) {
       return errorResponse("Complete all accepted tasks in previous lessons first", null);
     }
+  }
+
+  if (cell.type === "QUIZ" && cell.quiz?.questions.length) {
+    const answers = input.data.quizAnswers;
+    const valid = answers && cell.quiz.questions.every((question) => {
+      const selected = answers[question.id];
+      const correct = question.answers.filter((answer) => answer.isCorrect).map((answer) => answer.id);
+      return selected && correct.length > 0 && selected.length === correct.length &&
+        new Set(selected).size === selected.length && correct.every((id) => selected.includes(id));
+    });
+    if (!valid) return errorResponse("Answer every quiz question correctly before completing this cell", null);
   }
 
   const siblings = await prisma.lessonCell.findMany({

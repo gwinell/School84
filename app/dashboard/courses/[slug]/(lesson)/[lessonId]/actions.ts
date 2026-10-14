@@ -1,6 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
+import { canAccessAssignedLesson } from "@/lib/course-access";
 
 import arcjet, { fixedWindow } from "@/lib/arcjet";
 import { request } from "@arcjet/next";
@@ -27,6 +29,9 @@ export async function setLessonCompletionAction({
   completed,
 }: SetLessonCompletionInput): Promise<tApiResponse<null>> {
   const session = await requireUser();
+  if (!z.object({ lessonId: z.string().min(1), completed: z.boolean() }).safeParse({ lessonId, completed }).success) {
+    return errorResponse("Invalid lesson progress", null);
+  }
 
   try {
     const req = await request();
@@ -45,14 +50,14 @@ export async function setLessonCompletionAction({
         chapter: {
           select: {
             course: {
-              select: { id: true, slug: true },
+              select: { id: true, slug: true, status: true },
             },
           },
         },
       },
     });
 
-    if (!lesson) {
+    if (!lesson || lesson.chapter.course.status !== "PUBLISHED") {
       return errorResponse("Lesson not found", null);
     }
 
@@ -65,11 +70,26 @@ export async function setLessonCompletionAction({
           courseId,
         },
       },
-      select: { status: true },
+      select: { status: true, accessMode: true },
     });
 
     if (!enrollment || enrollment.status !== "Active") {
       return errorResponse("You are not enrolled in this course", null);
+    }
+
+    if (enrollment.accessMode === "SEQUENTIAL" && !(await canAccessAssignedLesson({
+      userId: session.user.id, courseId, lessonId,
+    }))) {
+      return errorResponse("Complete all accepted tasks in previous lessons first", null);
+    }
+    if (completed) {
+      const cells = await prisma.lessonCell.findMany({ where: { lessonId }, select: { id: true } });
+      const passedCount = cells.length ? await prisma.lessonCellProgress.count({
+        where: { userId: session.user.id, lessonCellId: { in: cells.map((cell) => cell.id) }, status: "PASSED" },
+      }) : 0;
+      if (passedCount !== cells.length) {
+        return errorResponse("Complete every lesson cell before marking the lesson complete", null);
+      }
     }
 
     await prisma.lessonProgress.upsert({

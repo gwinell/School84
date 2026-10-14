@@ -27,7 +27,7 @@ export async function discardUpload(
     return "not-owned";
   }
 
-  await deleteObject(key);
+  await deleteObjectStrict(key);
   await prisma.pendingUpload.delete({ where: { key } }).catch(() => {});
 
   return "deleted";
@@ -46,17 +46,22 @@ export async function discardUploads(
 // delete paths (course/lesson removed → file should go too) and by orphan
 // sweeps where ownership has already been verified. Best-effort.
 export async function deleteObject(key: string): Promise<void> {
-  if (!key) return;
   try {
-    await S3Client.send(
-      new DeleteObjectCommand({
-        Bucket: env.NEXT_PUBLIC_S3_BUCKET_NAME_IMAGES,
-        Key: key,
-      }),
-    );
+    await deleteObjectStrict(key);
   } catch {
-    // Ignored; sweep continues.
+    // Entity deletion remains best-effort.
   }
+}
+
+async function deleteObjectStrict(key: string): Promise<void> {
+  if (!key) return;
+  // Pending uploads retain their retry record until S3 confirms deletion.
+  await S3Client.send(
+    new DeleteObjectCommand({
+      Bucket: env.NEXT_PUBLIC_S3_BUCKET_NAME_IMAGES,
+      Key: key,
+    }),
+  );
 }
 
 export type SweepResult = {
@@ -80,7 +85,7 @@ export async function sweepOrphanUploads(
 
   for (const row of rows) {
     try {
-      await deleteObject(row.key);
+      await deleteObjectStrict(row.key);
       await prisma.pendingUpload.delete({ where: { key: row.key } });
       deleted++;
     } catch {
