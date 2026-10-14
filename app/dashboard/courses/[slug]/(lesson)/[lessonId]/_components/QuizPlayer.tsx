@@ -22,9 +22,10 @@ import { gradeQuizAnswerAction, type tQuizGrade } from "../quiz-actions";
 
 interface QuizPlayerProps {
   quiz: tUserLessonQuiz;
+  onSubmitted?: (answers: Record<string, string[]>) => void;
 }
 
-export function QuizPlayer({ quiz }: QuizPlayerProps) {
+export function QuizPlayer({ quiz, onSubmitted }: QuizPlayerProps) {
   const [selections, setSelections] = useState<Record<string, Set<string>>>(
     {},
   );
@@ -90,6 +91,7 @@ export function QuizPlayer({ quiz }: QuizPlayerProps) {
   function advance() {
     if (isLast) {
       setFinished(true);
+      onSubmitted?.(Object.fromEntries(Object.entries(selections).map(([id, answers]) => [id, Array.from(answers)])));
       return;
     }
     setStep((s) => s + 1);
@@ -194,6 +196,7 @@ export function QuizPlayer({ quiz }: QuizPlayerProps) {
           question={currentQuestion}
           selectedIds={currentSelection}
           revealed={isCurrentChecked}
+          disabled={isPending}
           grade={results[currentQuestion.id]}
           onSingleChange={(answerId) =>
             toggleSingle(currentQuestion.id, answerId)
@@ -209,7 +212,7 @@ export function QuizPlayer({ quiz }: QuizPlayerProps) {
           type="button"
           variant="outline"
           onClick={goBack}
-          disabled={step === 0}
+          disabled={step === 0 || isPending}
         >
           Previous
         </Button>
@@ -234,6 +237,7 @@ interface QuestionBodyProps {
   question: tUserQuizQuestion;
   selectedIds: Set<string>;
   revealed: boolean;
+  disabled?: boolean;
   grade?: tQuizGrade;
   onSingleChange: (answerId: string) => void;
   onMultipleChange: (answerId: string) => void;
@@ -243,6 +247,7 @@ function QuestionBody({
   question,
   selectedIds,
   revealed,
+  disabled,
   grade,
   onSingleChange,
   onMultipleChange,
@@ -253,6 +258,7 @@ function QuestionBody({
         question={question}
         selectedIds={selectedIds}
         revealed={revealed}
+        disabled={disabled}
         grade={grade}
         onSingleChange={onSingleChange}
       />
@@ -263,6 +269,7 @@ function QuestionBody({
       question={question}
       selectedIds={selectedIds}
       revealed={revealed}
+      disabled={disabled}
       grade={grade}
       onMultipleChange={onMultipleChange}
     />
@@ -273,6 +280,7 @@ interface SingleBodyProps {
   question: tUserQuizQuestion;
   selectedIds: Set<string>;
   revealed: boolean;
+  disabled?: boolean;
   grade?: tQuizGrade;
   onSingleChange: (answerId: string) => void;
 }
@@ -281,6 +289,7 @@ function SingleQuestionBody({
   question,
   selectedIds,
   revealed,
+  disabled,
   grade,
   onSingleChange,
 }: SingleBodyProps) {
@@ -291,6 +300,7 @@ function SingleQuestionBody({
     <RadioGroup
       value={value}
       onValueChange={(next) => onSingleChange(String(next))}
+      aria-label={question.text}
     >
       <ul className="flex flex-col gap-2">
         {question.answers.map((answer) => (
@@ -304,8 +314,8 @@ function SingleQuestionBody({
             marker={
               <RadioGroupItem
                 value={answer.id}
-                disabled={revealed}
-                aria-label={`Select answer`}
+                id={`quiz-answer-${answer.id}`}
+                disabled={revealed || disabled}
               />
             }
           />
@@ -319,6 +329,7 @@ interface MultipleBodyProps {
   question: tUserQuizQuestion;
   selectedIds: Set<string>;
   revealed: boolean;
+  disabled?: boolean;
   grade?: tQuizGrade;
   onMultipleChange: (answerId: string) => void;
 }
@@ -327,6 +338,7 @@ function MultipleQuestionBody({
   question,
   selectedIds,
   revealed,
+  disabled,
   grade,
   onMultipleChange,
 }: MultipleBodyProps) {
@@ -345,9 +357,9 @@ function MultipleQuestionBody({
             marker={
               <Checkbox
                 checked={checked}
-                disabled={revealed}
+                id={`quiz-answer-${answer.id}`}
+                disabled={revealed || disabled}
                 onCheckedChange={() => onMultipleChange(answer.id)}
-                aria-label={`Toggle answer`}
               />
             }
           />
@@ -390,7 +402,7 @@ function AnswerOption({
     >
       <div className="flex items-start gap-3">
         <div className="flex h-9 items-center">{marker}</div>
-        <span className="flex-1 text-sm">{answer.text}</span>
+        <label htmlFor={`quiz-answer-${answer.id}`} className="flex-1 cursor-pointer text-sm">{answer.text}</label>
         {revealed && isCorrect === true && (
           <CheckCircle2Icon className="mt-1 size-5 shrink-0 text-green-600 dark:text-green-400" />
         )}

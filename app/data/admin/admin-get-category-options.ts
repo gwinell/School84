@@ -1,7 +1,7 @@
 import "server-only";
 
 import prisma from "@/lib/prisma";
-import { requireAdmin } from "./require-admin";
+import { requireTeacher } from "@/app/data/teacher/require-teacher";
 
 export type tCategoryOption = {
   id: string;
@@ -14,7 +14,7 @@ export type tCategoryOption = {
  * Hard-capped at MAX_CATEGORIES so the dropdown never grows unbounded.
  */
 export async function adminGetCategoryOptions(): Promise<tCategoryOption[]> {
-  await requireAdmin();
+  await requireTeacher();
 
   const categories = await prisma.category.findMany({
     select: { id: true, name: true, slug: true },

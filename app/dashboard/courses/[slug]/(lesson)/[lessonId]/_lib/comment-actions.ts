@@ -8,6 +8,8 @@ import { request } from "@arcjet/next";
 import prisma from "@/lib/prisma";
 import { errorResponse, successResponse } from "@/lib/responses";
 import { requireUser } from "@/app/data/user/require-user";
+import { getCourseLearnerAccess } from "@/app/data/user/course-learner-access";
+import { canAccessAssignedLesson } from "@/lib/course-access";
 import { getLessonComments } from "@/app/data/user/get-lesson-comments";
 import { getLessonReplies } from "@/app/data/user/get-lesson-replies";
 import {
@@ -47,7 +49,7 @@ async function getLessonContext(
       chapter: {
         select: {
           course: {
-            select: { id: true, slug: true },
+            select: { id: true, slug: true, organizationId: true },
           },
         },
       },
@@ -66,20 +68,18 @@ async function hasAccess(
   userId: string,
   role: string | null | undefined,
   courseId: string,
+  lessonId: string,
 ): Promise<boolean> {
+  const lesson = await prisma.lesson.findFirst({
+    where: { id: lessonId, chapter: { courseId, course: { status: "PUBLISHED" } } },
+    select: { id: true, chapter: { select: { course: { select: { organizationId: true } } } } },
+  });
+  if (!lesson) return false;
   if (role === "admin") return true;
 
-  const enrollment = await prisma.enrollment.findUnique({
-    where: {
-      userId_courseId: {
-        userId,
-        courseId,
-      },
-    },
-    select: { status: true },
-  });
-
-  return enrollment?.status === "Active";
+  const enrollment = await getCourseLearnerAccess({ userId, userRole: role, courseId, organizationId: lesson.chapter.course.organizationId });
+  if (!enrollment) return false;
+  return enrollment.accessMode !== "SEQUENTIAL" || canAccessAssignedLesson({ userId, courseId, lessonId });
 }
 
 async function getCommentView(
@@ -152,7 +152,7 @@ export async function createCommentAction({
     }
 
     if (
-      !(await hasAccess(session.user.id, session.user.role, context.courseId))
+      !(await hasAccess(session.user.id, session.user.role, context.courseId, lessonId))
     ) {
       return errorResponse("You are not enrolled in this course", null);
     }
@@ -239,7 +239,7 @@ export async function createReplyAction({
     const courseId = parent.lesson.chapter.course.id;
     const slug = parent.lesson.chapter.course.slug;
 
-    if (!(await hasAccess(session.user.id, session.user.role, courseId))) {
+    if (!(await hasAccess(session.user.id, session.user.role, courseId, parent.lessonId))) {
       return errorResponse("You are not enrolled in this course", null);
     }
 
@@ -287,7 +287,7 @@ export async function editCommentAction({
           select: {
             chapter: {
               select: {
-                course: { select: { slug: true } },
+                course: { select: { id: true, slug: true } },
               },
             },
           },
@@ -301,6 +301,10 @@ export async function editCommentAction({
 
     if (comment.userId !== session.user.id) {
       return errorResponse("You can only edit your own comments", null);
+    }
+
+    if (!(await hasAccess(session.user.id, session.user.role, comment.lesson.chapter.course.id, comment.lessonId))) {
+      return errorResponse("You are not allowed to edit comments in this course", null);
     }
 
     await prisma.lessonComment.update({
@@ -338,7 +342,7 @@ export async function deleteCommentAction({
           select: {
             chapter: {
               select: {
-                course: { select: { slug: true } },
+                course: { select: { id: true, slug: true } },
               },
             },
           },
@@ -352,6 +356,10 @@ export async function deleteCommentAction({
 
     if (comment.userId !== session.user.id && session.user.role !== "admin") {
       return errorResponse("You are not allowed to delete this comment", null);
+    }
+
+    if (!(await hasAccess(session.user.id, session.user.role, comment.lesson.chapter.course.id, comment.lessonId))) {
+      return errorResponse("You are not allowed to delete comments in this course", null);
     }
 
     await prisma.lessonComment.delete({
@@ -386,6 +394,7 @@ export async function toggleCommentLikeAction({
       where: { id: commentId },
       select: {
         id: true,
+        lessonId: true,
         lesson: {
           select: {
             chapter: {
@@ -404,7 +413,7 @@ export async function toggleCommentLikeAction({
 
     const courseId = comment.lesson.chapter.course.id;
 
-    if (!(await hasAccess(session.user.id, session.user.role, courseId))) {
+    if (!(await hasAccess(session.user.id, session.user.role, courseId, comment.lessonId))) {
       return errorResponse("You are not enrolled in this course", null);
     }
 
@@ -467,7 +476,7 @@ export async function getCommentsPageAction({
     }
 
     if (
-      !(await hasAccess(session.user.id, session.user.role, context.courseId))
+      !(await hasAccess(session.user.id, session.user.role, context.courseId, lessonId))
     ) {
       return errorResponse("You are not enrolled in this course", null);
     }
@@ -500,6 +509,7 @@ export async function getRepliesPageAction({
     const comment = await prisma.lessonComment.findUnique({
       where: { id: commentId },
       select: {
+        lessonId: true,
         lesson: {
           select: {
             chapter: {
@@ -518,7 +528,7 @@ export async function getRepliesPageAction({
 
     const courseId = comment.lesson.chapter.course.id;
 
-    if (!(await hasAccess(session.user.id, session.user.role, courseId))) {
+    if (!(await hasAccess(session.user.id, session.user.role, courseId, comment.lessonId))) {
       return errorResponse("You are not enrolled in this course", null);
     }
 

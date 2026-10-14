@@ -1,8 +1,7 @@
 import Link from "next/link";
-import Image from "next/image";
+import { Brand, DEFAULT_BRAND_NAME } from "@/components/brand";
 import { GithubIcon, LinkedinIcon, TwitterIcon } from "lucide-react";
 
-import Logo from "@/public/logo.png";
 import { Separator } from "@/components/ui/separator";
 
 interface FooterLink {
@@ -20,19 +19,13 @@ const FOOTER_COLUMNS: FooterColumn[] = [
   {
     title: "Product",
     links: [
-      { label: "Courses", href: "/courses" },
-      { label: "Pricing", href: "/pricing" },
-      { label: "Features", href: "/features" },
-      { label: "Reviews", href: "/reviews" },
+      { label: "Sign in", href: "/login" },
     ],
   },
   {
     title: "Company",
     links: [
-      { label: "About", href: "/about" },
       { label: "Contact", href: "/contact" },
-      { label: "Careers", href: "/careers" },
-      { label: "Press", href: "/press" },
     ],
   },
   {
@@ -40,8 +33,6 @@ const FOOTER_COLUMNS: FooterColumn[] = [
     links: [
       { label: "Terms of Service", href: "/terms" },
       { label: "Privacy Policy", href: "/privacy" },
-      { label: "License", href: "/license" },
-      { label: "Cookies", href: "/cookies" },
     ],
   },
 ];
@@ -68,13 +59,10 @@ export function Footer() {
           <div className="lg:col-span-7 space-y-6">
             <Link
               href="/"
-              aria-label="KnowSphere home"
+              aria-label={`${DEFAULT_BRAND_NAME} home`}
               className="inline-flex items-center gap-2"
             >
-              <Image src={Logo} alt="KnowSphere logo" className="size-9" />
-              <span className="text-xl font-bold tracking-tight">
-                KnowSphere
-              </span>
+              <Brand nameClassName="text-xl" />
             </Link>
 
             <p className="max-w-md text-sm text-muted-foreground leading-relaxed">
@@ -109,7 +97,7 @@ export function Footer() {
 
         <div className="flex flex-col items-center justify-between gap-4 py-6 sm:flex-row">
           <p className="text-xs text-muted-foreground">
-            &copy; {year} KnowSphere. All rights reserved.
+            &copy; {year} {DEFAULT_BRAND_NAME}. All rights reserved.
           </p>
 
           <div className="flex items-center gap-1">
@@ -119,7 +107,7 @@ export function Footer() {
                 href={social.href}
                 target="_blank"
                 rel="noopener noreferrer"
-                aria-label={`KnowSphere on ${social.label}`}
+                aria-label={`${DEFAULT_BRAND_NAME} on ${social.label}`}
                 className="inline-flex size-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               >
                 <social.icon className="size-4" />

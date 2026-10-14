@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 
 export async function proxy(request: NextRequest) {
+  const isTeacherArea = request.nextUrl.pathname.startsWith("/teacher");
   const session = await auth.api.getSession({
     headers: await headers(),
   });
@@ -15,7 +16,7 @@ export async function proxy(request: NextRequest) {
 
   // requireAdmin() inside the admin layout is the authoritative gate; this is
   // just a cleaner redirect for signed-in non-admins.
-  if (session.user.role !== "admin") {
+  if (isTeacherArea ? session.user.role !== "admin" && session.user.role !== "teacher" : session.user.role !== "admin") {
     return NextResponse.redirect(new URL("/not-admin", request.url));
   }
 

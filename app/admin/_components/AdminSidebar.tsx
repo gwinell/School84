@@ -4,16 +4,11 @@ import { ComponentProps } from "react";
 import { usePathname } from "next/navigation";
 
 import {
-  LayersIcon,
   PlusCircleIcon,
-  SettingsIcon,
   LayoutDashboardIcon,
   BookCheckIcon,
-  FolderIcon,
   HistoryIcon,
   MessageCircleIcon,
-  MessageCircleQuestionMarkIcon,
-  StarIcon,
   TagIcon,
 } from "lucide-react";
 
@@ -30,6 +25,7 @@ import {
 } from "@/components/ui/sidebar";
 import Link from "next/link";
 import NavUser from "@/components/nav-user";
+import { Brand } from "@/components/brand";
 
 function isNavItemActive(pathname: string, url: string) {
   if (url === "#") return false;
@@ -58,16 +54,6 @@ export function AdminSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
       icon: <TagIcon size={16} />,
     },
     {
-      title: "Reviews",
-      url: "/admin/reviews",
-      icon: <StarIcon size={16} />,
-    },
-    {
-      title: "Projects",
-      url: "/admin/projects",
-      icon: <FolderIcon size={16} />,
-    },
-    {
       title: "Activity",
       url: "/admin/activity",
       icon: <HistoryIcon size={16} />,
@@ -79,18 +65,7 @@ export function AdminSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
     },
   ];
 
-  const navSecondary = [
-    {
-      title: "Settings",
-      url: "/admin/settings",
-      icon: <SettingsIcon size={16} />,
-    },
-    {
-      title: "Get Help",
-      url: "#",
-      icon: <MessageCircleQuestionMarkIcon size={16} />,
-    },
-  ];
+  const navSecondary: IItems[] = [];
 
   return (
     <Sidebar collapsible="icon" {...props}>
@@ -102,8 +77,7 @@ export function AdminSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
               render={<Link href="/admin" />}
               className="data-[slot=sidebar-menu-button]:p-1.5!"
             >
-              <LayersIcon className="size-5!" />
-              <span className="text-base font-semibold">KnowSphere Admin</span>
+              <Brand markClassName="size-5" nameClassName="text-base" />
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

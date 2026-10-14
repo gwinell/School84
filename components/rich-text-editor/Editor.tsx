@@ -4,8 +4,11 @@ import { EditorContent, useEditor, useEditorState } from "@tiptap/react";
 import StartedKit from "@tiptap/starter-kit";
 import { Underline } from "@tiptap/extension-underline";
 import TextAlign from "@tiptap/extension-text-align";
+import { useRef } from "react";
+import { toast } from "sonner";
 
 import { MenuBar, type MenuBarState } from "./MenuBar";
+import { InlineImage } from "./InlineImage";
 
 interface RichTextEditorField {
   onChange: (value: string) => void;
@@ -37,11 +40,13 @@ const EMPTY_MENU_BAR_STATE: MenuBarState = {
   canRedo: false,
 };
 
-export function RichTextEditor({ field }: { field: RichTextEditorField }) {
+export function RichTextEditor({ field, courseId }: { field: RichTextEditorField; courseId?: string }) {
+  const imageInput = useRef<HTMLInputElement>(null);
   const editor = useEditor({
     extensions: [
-      StartedKit,
+      StartedKit.configure({ underline: false }),
       UnderlineWithShortcut,
+      InlineImage,
       TextAlign.configure({
         types: ["heading", "paragraph"],
       }),
@@ -79,9 +84,63 @@ export function RichTextEditor({ field }: { field: RichTextEditorField }) {
     }),
   }) ?? EMPTY_MENU_BAR_STATE;
 
+  async function uploadInlineImage(file: File) {
+    if (!editor) return;
+    try {
+      const response = await fetch("/api/s3/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileName: file.name,
+          contentType: file.type,
+          size: file.size,
+          isImage: true,
+          ...(courseId ? { courseId } : {}),
+        }),
+      });
+      if (!response.ok) throw new Error("Could not prepare image upload");
+      const { presignedUrl, key } = (await response.json()) as {
+        presignedUrl: string;
+        key: string;
+      };
+      const uploaded = await fetch(presignedUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!uploaded.ok) throw new Error("Image upload failed");
+      editor
+        .chain()
+        .focus()
+        .insertContent({
+          type: "inlineImage",
+          attrs: { src: URL.createObjectURL(file), key, alt: file.name },
+        })
+        .run();
+      toast.success("Изображение добавлено");
+    } catch {
+      toast.error("Не удалось загрузить изображение");
+    }
+  }
+
   return (
     <div className="w-full border border-input rounded-lg overflow-hidden dark:bg-input/30">
-      <MenuBar editor={editor} state={state} />
+      <MenuBar
+        editor={editor}
+        state={state}
+        onImageClick={() => imageInput.current?.click()}
+      />
+      <input
+        ref={imageInput}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (file) void uploadInlineImage(file);
+        }}
+      />
       <EditorContent editor={editor} />
     </div>
   );

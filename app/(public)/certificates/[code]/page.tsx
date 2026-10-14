@@ -20,17 +20,17 @@ export async function generateMetadata({
 
   if (!certificate) {
     return {
-      title: "Certificate not found | KnowSphere",
+      title: "Certificate not found | SchoolSphere",
       robots: { index: false, follow: false },
     };
   }
 
   const live = certificate.liveCourse;
   const title = live?.title ?? certificate.courseTitleSnapshot;
-  const description = `${certificate.recipient.name} completed "${title}" on KnowSphere.`;
+  const description = `${certificate.recipient.name} completed "${title}" on SchoolSphere.`;
 
   return {
-    title: `${certificate.recipient.name} — ${title} | KnowSphere Certificate`,
+    title: `${certificate.recipient.name} — ${title} | SchoolSphere Certificate`,
     description,
     openGraph: {
       title: `${certificate.recipient.name} — ${title}`,

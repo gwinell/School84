@@ -22,7 +22,7 @@ const TESTIMONIALS: Testimonial[] = [
     rating: 5,
     iconColor: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
     content:
-      "KnowSphere changed how I learn. The lessons are clear, the platform is fast, and I can pick up right where I left off on any device.",
+      "SchoolSphere changed how I learn. The lessons are clear, the platform is fast, and I can pick up right where I left off on any device.",
   },
   {
     id: "t2",
@@ -32,7 +32,7 @@ const TESTIMONIALS: Testimonial[] = [
     rating: 5,
     iconColor: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
     content:
-      "As a product designer, I care about details. KnowSphere nails them — from the seamless checkout to the clean course player. The mobile experience is just as polished as desktop. It's rare to find a learning platform that feels this well-designed.",
+      "As a product designer, I care about details. SchoolSphere nails them — from the seamless checkout to the clean course player. The mobile experience is just as polished as desktop. It's rare to find a learning platform that feels this well-designed.",
   },
   {
     id: "t3",
@@ -42,7 +42,7 @@ const TESTIMONIALS: Testimonial[] = [
     rating: 5,
     iconColor: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
     content:
-      "I've tried a lot of platforms and KnowSphere is the first one where I actually finish courses. The instructor quality is consistently high, the content is well-structured, and the community keeps me accountable. I went from curious to confident in six months.",
+      "I've tried a lot of platforms and SchoolSphere is the first one where I actually finish courses. The instructor quality is consistently high, the content is well-structured, and the community keeps me accountable. I went from curious to confident in six months.",
   },
   {
     id: "t4",
@@ -52,7 +52,7 @@ const TESTIMONIALS: Testimonial[] = [
     rating: 5,
     iconColor: "bg-purple-500/10 text-purple-600 dark:text-purple-400",
     content:
-      "Self-taught for years. KnowSphere filled the gaps I didn't know I had. Worth every penny.",
+      "Self-taught for years. SchoolSphere filled the gaps I didn't know I had. Worth every penny.",
   },
   {
     id: "t5",
@@ -72,7 +72,7 @@ const TESTIMONIALS: Testimonial[] = [
     rating: 5,
     iconColor: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400",
     content:
-      "I run a small studio and use KnowSphere to keep my team sharp on the latest tools. The platform lets us assign courses, track who completed what, and run reports in seconds. The customer support team actually replies quickly — that's rare. We tried three competitors before settling on KnowSphere.",
+      "I run a small studio and use SchoolSphere to keep my team sharp on the latest tools. The platform lets us assign courses, track who completed what, and run reports in seconds. The customer support team actually replies quickly — that's rare. We tried three competitors before settling on SchoolSphere.",
   },
   {
     id: "t7",
@@ -92,7 +92,7 @@ const TESTIMONIALS: Testimonial[] = [
     rating: 5,
     iconColor: "bg-teal-500/10 text-teal-600 dark:text-teal-400",
     content:
-      "The interactive lessons are a game-changer. Quizzes and projects keep me engaged, not just passively watching. I've recommended KnowSphere to my entire design team — it's that good.",
+      "The interactive lessons are a game-changer. Quizzes and projects keep me engaged, not just passively watching. I've recommended SchoolSphere to my entire design team — it's that good.",
   },
   {
     id: "t9",
@@ -102,7 +102,7 @@ const TESTIMONIALS: Testimonial[] = [
     rating: 5,
     iconColor: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
     content:
-      "I switched careers from accounting to UX at 38. KnowSphere's structured learning paths gave me the confidence to keep going on tough days. Six months in, I landed my first UX role. The instructors genuinely care, the community is supportive, and the certificates helped prove my new skills to employers. I couldn't have done it without this platform.",
+      "I switched careers from accounting to UX at 38. SchoolSphere's structured learning paths gave me the confidence to keep going on tough days. Six months in, I landed my first UX role. The instructors genuinely care, the community is supportive, and the certificates helped prove my new skills to employers. I couldn't have done it without this platform.",
   },
   {
     id: "t10",
@@ -112,7 +112,7 @@ const TESTIMONIALS: Testimonial[] = [
     rating: 5,
     iconColor: "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400",
     content:
-      "The depth of content is what keeps me coming back. Surface-level tutorials are everywhere, but KnowSphere goes deep on real-world projects. I learn something new in every session and apply it to my work the next day.",
+      "The depth of content is what keeps me coming back. Surface-level tutorials are everywhere, but SchoolSphere goes deep on real-world projects. I learn something new in every session and apply it to my work the next day.",
   },
 ];
 
@@ -197,7 +197,7 @@ export function Testimonials() {
           </h2>
 
           <p className="text-base md:text-lg text-muted-foreground leading-relaxed text-balance">
-            Real feedback from learners and instructors who use KnowSphere every
+            Real feedback from learners and instructors who use SchoolSphere every
             day to build new skills and grow their careers.
           </p>
         </div>

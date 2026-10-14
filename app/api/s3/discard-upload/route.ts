@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
 import z from "zod";
 
-import { requireAdmin } from "@/app/data/admin/require-admin";
+import { requireUser } from "@/app/data/user/require-user";
 import { discardUploads } from "@/lib/s3/discard-upload";
 import arcjet, { detectBot, fixedWindow } from "@/lib/arcjet";
 import { request } from "@arcjet/next";
+import { canAccessUploadCourse } from "@/app/api/s3/course-access";
 
 const discardSchema = z.object({
   keys: z.array(z.string().min(1)).max(50),
+  courseId: z.string().min(1).optional(),
 });
 
 const aj = arcjet
@@ -26,7 +28,7 @@ const aj = arcjet
   );
 
 export async function POST(req: Request) {
-  const session = await requireAdmin();
+  const session = await requireUser();
 
   try {
     const decision = await aj.protect(await request(), {
@@ -49,7 +51,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid body" }, { status: 400 });
     }
 
-    const results = await discardUploads(parsed.data.keys, session.user.id);
+    if (!(await canAccessUploadCourse({
+      role: session.user.role,
+      userId: session.user.id,
+      courseId: parsed.data.courseId,
+    }))) {
+      return NextResponse.json({ error: "Course access denied" }, { status: 403 });
+    }
+
+    const results = await discardUploads(
+      parsed.data.keys,
+      session.user.id,
+      session.user.role === "admin" ? undefined : parsed.data.courseId,
+    );
 
     return NextResponse.json({ results }, { status: 200 });
   } catch (error) {

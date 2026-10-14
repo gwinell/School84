@@ -10,7 +10,7 @@ export default function CertificateNotFound() {
       title="Certificate not found"
       description="This certificate doesn't exist, or its owner has chosen to keep it private. If you got here from a shared link, please ask the owner to double-check the URL."
       backHref="/"
-      backLabel="Back to KnowSphere"
+      backLabel="Back to SchoolSphere"
     />
   );
 }

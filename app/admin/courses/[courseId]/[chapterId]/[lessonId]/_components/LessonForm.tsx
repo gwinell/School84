@@ -116,7 +116,7 @@ export function LessonForm({ data, courseId, chapterId }: iAppProps) {
               render={({ field, fieldState }) => (
                 <Field data-invalid={fieldState.invalid}>
                   <FieldLabel htmlFor="description">Description</FieldLabel>
-                  <RichTextEditor field={field} />
+                  <RichTextEditor field={field} courseId={courseId} />
                   <FieldDescription>
                     Detailed description of what this lesson covers
                   </FieldDescription>

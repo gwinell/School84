@@ -1,0 +1,13 @@
+.git
+.next
+node_modules
+*.log
+.env
+.env.*
+!.env.example
+coverage
+lib/generated/prisma
+
+# Python regression artifacts
+__pycache__/
+*.py[cod]

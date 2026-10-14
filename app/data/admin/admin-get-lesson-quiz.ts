@@ -1,19 +1,23 @@
 import "server-only";
 
 import prisma from "@/lib/prisma";
-import { requireAdmin } from "./require-admin";
+import { requireTeacher } from "@/app/data/teacher/require-teacher";
+import { getManagedCourseIds } from "@/app/data/teacher/get-managed-course-ids";
 
 type TAdminGetLessonQuizProps = {
-  lessonId: string;
+  cellId: string;
 };
 
 export async function adminGetLessonQuiz({
-  lessonId,
+  cellId,
 }: TAdminGetLessonQuizProps) {
-  await requireAdmin();
+  const session = await requireTeacher();
+  const managedCourseIds = await getManagedCourseIds(session.user.id, session.user.role);
+  const cell = await prisma.lessonCell.findFirst({ where: { id: cellId, ...(managedCourseIds ? { lesson: { chapter: { courseId: { in: managedCourseIds } } } } : {}) }, select: { id: true } });
+  if (!cell) return null;
 
   const quiz = await prisma.quiz.findUnique({
-    where: { lessonId },
+    where: { cellId },
     select: {
       id: true,
       questions: {

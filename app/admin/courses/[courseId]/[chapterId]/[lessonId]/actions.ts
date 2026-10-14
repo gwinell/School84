@@ -9,7 +9,10 @@ import {
   lessonSchema,
 } from "@/lib/zodSchemas";
 import { z } from "zod";
-import { requireAdmin } from "@/app/data/admin/require-admin";
+import { requireTeacher } from "@/app/data/teacher/require-teacher";
+import { getManagedCourseIds } from "@/app/data/teacher/get-managed-course-ids";
+import { requireCourseTeacher } from "@/app/data/teacher/require-course-teacher";
+import { canUseCourseMediaKeys } from "@/lib/teacher/course-media";
 import arcjet, { detectBot, fixedWindow } from "@/lib/arcjet";
 import { request } from "@arcjet/next";
 import { revalidatePath } from "next/cache";
@@ -55,8 +58,7 @@ const quizAj = arcjet
   );
 
 export async function updateLesson(lessonId: string, values: LessonSchemaType) {
-  const session = await requireAdmin();
-
+  const session = await requireTeacher();
   try {
     const req = await request();
     const decision = await aj.protect(req, {
@@ -73,8 +75,9 @@ export async function updateLesson(lessonId: string, values: LessonSchemaType) {
       return errorResponse("Invalid data", z.treeifyError(validatedData.error));
     }
 
-    const before = await prisma.lesson.findUnique({
-      where: { id: lessonId },
+    const { session: courseSession } = await requireCourseTeacher(validatedData.data.courseId);
+    const before = await prisma.lesson.findFirst({
+      where: { id: lessonId, chapterId: validatedData.data.chapterId, chapter: { courseId: validatedData.data.courseId } },
       select: {
         id: true,
         title: true,
@@ -88,6 +91,17 @@ export async function updateLesson(lessonId: string, values: LessonSchemaType) {
       return errorResponse("Lesson not found", null);
     }
 
+    const nextVideoKey = validatedData.data.videoKey ?? null;
+    if (!(await canUseCourseMediaKeys({
+      keys: nextVideoKey ? [nextVideoKey] : [],
+      existingKeys: before.videoKey ? [before.videoKey] : [],
+      courseId: validatedData.data.courseId,
+      userId: courseSession.user.id,
+      role: courseSession.user.role,
+    }))) {
+      return errorResponse("Video upload is not available", null);
+    }
+
     const lesson = await prisma.lesson.update({
       where: { id: lessonId },
       data: {
@@ -97,9 +111,16 @@ export async function updateLesson(lessonId: string, values: LessonSchemaType) {
       },
     });
 
-    if (validatedData.data.videoKey) {
+    if (nextVideoKey && nextVideoKey !== before.videoKey) {
       await prisma.pendingUpload
-        .delete({ where: { key: validatedData.data.videoKey } })
+        .deleteMany({
+          where: {
+            key: nextVideoKey,
+            ...(courseSession.user.role === "admin"
+              ? {}
+              : { userId: courseSession.user.id, courseId: validatedData.data.courseId }),
+          },
+        })
         .catch(() => {});
     }
 
@@ -135,37 +156,36 @@ export async function updateLesson(lessonId: string, values: LessonSchemaType) {
   }
 }
 
-async function findLessonContext(lessonId: string) {
-  const lesson = await prisma.lesson.findUnique({
-    where: { id: lessonId },
+async function findCellContext(cellId: string) {
+  const session = await requireTeacher();
+  const managedCourseIds = await getManagedCourseIds(session.user.id, session.user.role);
+  const cell = await prisma.lessonCell.findFirst({
+    where: { id: cellId, ...(managedCourseIds ? { lesson: { chapter: { courseId: { in: managedCourseIds } } } } : {}) },
     select: {
-      id: true,
-      title: true,
-      chapterId: true,
-      chapter: {
+      lessonId: true,
+      lesson: {
         select: {
-          courseId: true,
+          title: true,
+          chapterId: true,
+          chapter: { select: { courseId: true } },
         },
       },
     },
   });
-
-  if (!lesson) {
-    return null;
-  }
-
+  if (!cell) return null;
   return {
-    courseId: lesson.chapter.courseId,
-    chapterId: lesson.chapterId,
-    lessonTitle: lesson.title,
+    courseId: cell.lesson.chapter.courseId,
+    chapterId: cell.lesson.chapterId,
+    lessonId: cell.lessonId,
+    lessonTitle: cell.lesson.title,
   };
 }
 
 export async function upsertLessonQuiz(
-  lessonId: string,
+  cellId: string,
   values: Omit<LessonQuizSchemaType, "lessonId">,
 ) {
-  const session = await requireAdmin();
+  const session = await requireTeacher();
 
   try {
     const req = await request();
@@ -177,16 +197,13 @@ export async function upsertLessonQuiz(
       return errorResponse("Too many requests", null);
     }
 
-    const parsed = lessonQuizSchema.safeParse({
-      lessonId,
-      ...values,
-    });
+    const parsed = lessonQuizSchema.omit({ lessonId: true }).safeParse(values);
 
     if (!parsed.success) {
       return errorResponse("Invalid data", z.treeifyError(parsed.error));
     }
 
-    const ctx = await findLessonContext(lessonId);
+    const ctx = await findCellContext(cellId);
     if (!ctx) {
       return errorResponse("Lesson not found", null);
     }
@@ -194,7 +211,7 @@ export async function upsertLessonQuiz(
     const { questions } = parsed.data;
 
     const existingQuiz = await prisma.quiz.findUnique({
-      where: { lessonId },
+      where: { cellId },
       select: {
         id: true,
         questions: { select: { type: true } },
@@ -208,9 +225,9 @@ export async function upsertLessonQuiz(
 
     await prisma.$transaction(async (tx) => {
       const quiz = await tx.quiz.upsert({
-        where: { lessonId },
+        where: { cellId },
         update: {},
-        create: { lessonId },
+        create: { cellId },
         select: { id: true },
       });
 
@@ -262,7 +279,7 @@ export async function upsertLessonQuiz(
           metadata: {
             courseId: ctx.courseId,
             chapterId: ctx.chapterId,
-            lessonId,
+            lessonId: ctx.lessonId,
             fields: changedFields,
             ...(wasCreated ? { questionsCount: questions.length } : {}),
           },
@@ -271,18 +288,37 @@ export async function upsertLessonQuiz(
       );
     });
 
-    revalidatePath(
-      `/admin/courses/${ctx.courseId}/${ctx.chapterId}/${lessonId}`,
-    );
+    const savedQuiz = await prisma.quiz.findUnique({
+      where: { cellId },
+      select: {
+        questions: {
+          orderBy: { position: "asc" },
+          select: {
+            id: true,
+            text: true,
+            type: true,
+            answers: {
+              orderBy: { position: "asc" },
+              select: {
+                id: true,
+                text: true,
+                isCorrect: true,
+                explanation: true,
+              },
+            },
+          },
+        },
+      },
+    });
 
-    return successResponse("Quiz saved successfully", null);
+    return successResponse("Quiz saved successfully", savedQuiz);
   } catch {
     return errorResponse("Failed to save quiz", null);
   }
 }
 
 const reorderQuizQuestionsSchema = z.object({
-  lessonId: z.string().cuid(),
+  cellId: z.string().cuid(),
   questions: z.array(
     z.object({
       id: z.string().cuid(),
@@ -292,17 +328,17 @@ const reorderQuizQuestionsSchema = z.object({
 });
 
 interface iReorderQuizQuestionsProps {
-  lessonId: string;
+  cellId: string;
   questions: { id: string; position: number }[];
 }
 
 export async function reorderQuizQuestions({
-  lessonId,
+  cellId,
   questions,
 }: iReorderQuizQuestionsProps) {
   try {
     const parsed = reorderQuizQuestionsSchema.safeParse({
-      lessonId,
+      cellId,
       questions,
     });
 
@@ -310,15 +346,15 @@ export async function reorderQuizQuestions({
       return errorResponse("Invalid data", z.treeifyError(parsed.error));
     }
 
-    await requireAdmin();
+    await requireTeacher();
 
-    const ctx = await findLessonContext(lessonId);
+    const ctx = await findCellContext(cellId);
     if (!ctx) {
       return errorResponse("Lesson not found", null);
     }
 
     const quiz = await prisma.quiz.findUnique({
-      where: { lessonId },
+      where: { cellId },
       select: { id: true },
     });
 
@@ -357,10 +393,6 @@ export async function reorderQuizQuestions({
     );
 
     await prisma.$transaction([...tempUpdates, ...finalUpdates]);
-
-    revalidatePath(
-      `/admin/courses/${ctx.courseId}/${ctx.chapterId}/${lessonId}`,
-    );
 
     return successResponse("Questions reordered successfully", null);
   } catch {

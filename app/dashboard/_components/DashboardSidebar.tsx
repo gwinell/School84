@@ -4,21 +4,21 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ComponentProps, type ReactNode } from "react";
 import {
-  AwardIcon,
-  BookmarkIcon,
   GraduationCapIcon,
-  LayersIcon,
   MessageCircleQuestionMarkIcon,
-  SettingsIcon,
   UserIcon,
+  ClipboardListIcon,
+  SchoolIcon,
 } from "lucide-react";
 
 import NavUser from "@/components/nav-user";
+import { Brand } from "@/components/brand";
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
+  SidebarGroupLabel,
   SidebarGroupContent,
   SidebarHeader,
   SidebarMenu,
@@ -32,6 +32,13 @@ interface IItems {
   icon: ReactNode;
 }
 
+export type SchoolNavEntry = {
+  name: string;
+  slug: string;
+  logoUrl: string | null;
+  primaryColor: string | null;
+};
+
 function isNavItemActive(pathname: string, url: string) {
   if (url === "#") return false;
   const segmentCount = url.split("/").filter(Boolean).length;
@@ -39,40 +46,29 @@ function isNavItemActive(pathname: string, url: string) {
   return pathname === url || pathname.startsWith(url + "/");
 }
 
-export function DashboardSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
+export function DashboardSidebar({ role, hasTeachingAccess = false, schools = [], ...props }: ComponentProps<typeof Sidebar> & { role?: string | null; hasTeachingAccess?: boolean; schools?: SchoolNavEntry[] }) {
   const pathname = usePathname();
 
   const navMain: IItems[] = [
     {
-      title: "Dashboard",
+      title: "Обучение",
       url: "/dashboard",
       icon: <GraduationCapIcon size={16} />,
     },
     {
-      title: "Certificates",
-      url: "/dashboard/certificates",
-      icon: <AwardIcon size={16} />,
-    },
-    {
-      title: "Wishlist",
-      url: "/dashboard/wishlist",
-      icon: <BookmarkIcon size={16} />,
-    },
-    {
-      title: "Profile",
+      title: "Профиль",
       url: "/dashboard/profile",
       icon: <UserIcon size={16} />,
     },
+    { title: "Мои школы", url: "/dashboard/schools", icon: <SchoolIcon size={16} /> },
   ];
+  if (role === "teacher" || role === "admin" || hasTeachingAccess) {
+    navMain.push({ title: "Преподавание", url: "/teacher", icon: <ClipboardListIcon size={16} /> });
+  }
 
   const navSecondary: IItems[] = [
     {
-      title: "Settings",
-      url: "/dashboard/settings",
-      icon: <SettingsIcon size={16} />,
-    },
-    {
-      title: "Get Help",
+      title: "Помощь",
       url: "/contact",
       icon: <MessageCircleQuestionMarkIcon size={16} />,
     },
@@ -88,8 +84,7 @@ export function DashboardSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
               render={<Link href="/dashboard" />}
               className="data-[slot=sidebar-menu-button]:p-1.5!"
             >
-              <LayersIcon className="size-5!" />
-              <span className="text-base font-semibold">KnowSphere</span>
+              <Brand markClassName="size-5" nameClassName="text-base" />
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
@@ -98,6 +93,7 @@ export function DashboardSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
       {/* Sidebar Content */}
       <SidebarContent>
         <NavMain items={navMain} pathname={pathname} />
+        <SchoolNavigation schools={schools} pathname={pathname} />
         <NavSecondary
           items={navSecondary}
           pathname={pathname}
@@ -110,6 +106,39 @@ export function DashboardSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
         <NavUser />
       </SidebarFooter>
     </Sidebar>
+  );
+}
+
+export function SchoolNavigation({ schools, pathname }: { schools: SchoolNavEntry[]; pathname: string }) {
+  return (
+    <SidebarGroup>
+      <SidebarGroupLabel>Школы</SidebarGroupLabel>
+      <SidebarGroupContent>
+        <SidebarMenu>
+          {schools.length ? schools.map((school) => {
+            const href = `/schools/${encodeURIComponent(school.slug)}/courses`;
+            return (
+              <SidebarMenuItem key={school.slug}>
+                <SidebarMenuButton
+                  title={school.name}
+                  isActive={pathname.startsWith(href)}
+                  render={<Link href={href} />}
+                >
+                  <Brand brand={school} markClassName="size-5" nameClassName="text-sm" />
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            );
+          }) : (
+            <SidebarMenuItem>
+              <SidebarMenuButton render={<Link href="/dashboard/schools" />}>
+                <SchoolIcon size={16} />
+                <span>Добавить школу</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
   );
 }
 

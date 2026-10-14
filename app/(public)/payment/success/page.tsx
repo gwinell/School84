@@ -3,7 +3,7 @@ import { type Metadata } from "next";
 import { SuccessContent } from "./_components/SuccessContent";
 
 export const metadata: Metadata = {
-  title: "Payment successful | KnowSphere",
+  title: "Payment successful | SchoolSphere",
   description:
     "Your enrollment is confirmed. Head to your course whenever you're ready.",
 };

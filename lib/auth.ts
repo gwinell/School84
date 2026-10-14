@@ -21,7 +21,24 @@ export const auth = betterAuth({
   plugins: [
     admin(),
     emailOTP({
+      // A fixed one-click demo OTP is available only in the explicitly enabled
+      // local console profile and only for the two seeded demo accounts.
+      generateOTP({ email }) {
+        if (
+          env.DEMO_LOGIN_ENABLED === "true" &&
+          env.AUTH_EMAIL_MODE === "console" &&
+          ["admin@school84.local", "student@school84.local"].includes(email.toLowerCase())
+        ) {
+          return "840084";
+        }
+        return undefined;
+      },
       async sendVerificationOTP({ email, otp }) {
+        if (env.AUTH_EMAIL_MODE === "console") {
+          console.info(`[School 84 local OTP] ${email}: ${otp}`);
+          return;
+        }
+
         try {
           const { error } = await resend.emails.send({
             from: env.EMAIL_FROM,

@@ -19,7 +19,7 @@ interface FaqItem {
 const FAQS: FaqItem[] = [
   {
     id: "pricing",
-    question: "How much does KnowSphere cost?",
+    question: "How much does SchoolSphere cost?",
     answer:
       "Sign up is free. Many courses are free; paid courses are priced individually by their instructors. You'll always see the price up front before enrolling, and we never auto-charge.",
   },

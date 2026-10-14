@@ -2,50 +2,32 @@ import { VideoIcon } from "lucide-react";
 
 import { EmptyState } from "@/components/general/EmptyState";
 import { getCourseForLearning } from "@/app/data/user/get-course-for-learning";
-import { getMyCertificateForCourse } from "@/app/data/user/get-my-certificate-for-course";
 
-import { CourseCompletionBanner } from "./_components/CourseCompletionBanner";
 import { CourseOverviewHeader } from "./_components/CourseOverviewHeader";
 import { DashboardCourseChapters } from "./_components/DashboardCourseChapters";
 
 interface PageParams {
-  params: Promise<{ slug: string }>;
+  params: Promise<{ slug: string; organizationSlug?: string }>;
 }
 
 export default async function CourseLearnOverviewPage({ params }: PageParams) {
-  const { slug } = await params;
-  const course = await getCourseForLearning({ slug });
+  const { slug, organizationSlug } = await params;
+  const course = await getCourseForLearning({ slug, organizationSlug });
 
-  const lessons = course.courseChapters.flatMap((chapter) => chapter.lessons);
-  const totalLessons = lessons.length;
-  const completedCount = lessons.filter((lesson) => lesson.completed).length;
-  const resumeLessonId =
-    lessons.find((lesson) => !lesson.completed)?.id ?? lessons[0]?.id ?? null;
-
-  const certificate = await getMyCertificateForCourse({
-    courseId: course.id,
-  });
+  const totalLessons = course.courseChapters.reduce((count, chapter) => count + chapter.lessons.length, 0);
 
   return (
     <div className="flex flex-1 flex-col space-y-6">
       <CourseOverviewHeader
         slug={course.slug}
+        organizationSlug={course.organization.slug}
         title={course.title}
         smallDesc={course.smallDesc}
         imageUrl={course.imageUrl}
-        resumeLessonId={resumeLessonId}
-        hasStarted={completedCount > 0}
+        resumeLessonId={course.resumeLessonId}
+        resumeCellId={course.resumeCellId}
+        hasStarted={course.resumeHasStarted}
       />
-
-      {totalLessons > 0 ? (
-        <CourseCompletionBanner
-          courseId={course.id}
-          courseSlug={course.slug}
-          totalLessons={totalLessons}
-          completedLessons={completedCount}
-          certificate={certificate}
-        />
-      ) : null}
 
       {totalLessons === 0 ? (
         <EmptyState
@@ -58,6 +40,7 @@ export default async function CourseLearnOverviewPage({ params }: PageParams) {
         <DashboardCourseChapters
           chapters={course.courseChapters}
           courseSlug={course.slug}
+          organizationSlug={course.organization.slug}
         />
       )}
     </div>

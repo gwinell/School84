@@ -37,6 +37,7 @@ import { Uploader } from "@/components/file-uploader/Uploader";
 import slugify from "slugify";
 import { formatSlug } from "@/lib/formatSlug";
 import { useTransition } from "react";
+import { useState } from "react";
 import { tryCatch } from "@/hooks/try-catch";
 import { useConfetti } from "@/hooks/use-confetti";
 import { useRouter } from "next/navigation";
@@ -50,6 +51,7 @@ export type CourseFormProps = {
   initialValues?: Partial<CourseSchemaType>;
   submitAction: (
     data: CourseSchemaType,
+    organizationId?: string,
   ) => Promise<
     | tApiResponse<unknown>
     | { status: "success" | "error"; message: string; data: unknown }
@@ -66,6 +68,8 @@ export type CourseFormProps = {
   fireConfetti?: boolean;
   existingImageUrl?: string | null;
   existingImageKey?: string | null;
+  uploadCourseId?: string;
+  organizationOptions?: { id: string; name: string }[];
 };
 
 export function CourseForm({
@@ -83,8 +87,11 @@ export function CourseForm({
   fireConfetti = false,
   existingImageUrl = null,
   existingImageKey = null,
+  uploadCourseId,
+  organizationOptions = [],
 }: CourseFormProps) {
   const [isPending, startTransition] = useTransition();
+  const [organizationId, setOrganizationId] = useState(organizationOptions.length === 1 ? organizationOptions[0].id : "");
   const router = useRouter();
   const triggerConfetti = useConfetti();
   const form = useForm({
@@ -106,7 +113,7 @@ export function CourseForm({
 
   const onSubmit = (data: CourseSchemaType) => {
     startTransition(async () => {
-      const { data: result, error } = await tryCatch(submitAction(data));
+      const { data: result, error } = await tryCatch(submitAction(data, organizationId || undefined));
 
       if (error) {
         toast.error("An unexpected error occurred. Please try again.");
@@ -142,6 +149,18 @@ export function CourseForm({
       <CardContent>
         <form id={formId} onSubmit={form.handleSubmit(onSubmit)}>
           <FieldGroup>
+            {organizationOptions.length > 1 ? (
+              <Field>
+                <FieldLabel htmlFor="course-organization">School</FieldLabel>
+                <Select value={organizationId} onValueChange={(value) => setOrganizationId(value ?? "")}>
+                  <SelectTrigger id="course-organization"><SelectValue placeholder="Choose a school" /></SelectTrigger>
+                  <SelectContent>
+                    {organizationOptions.map((organization) => <SelectItem key={organization.id} value={organization.id}>{organization.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <FieldDescription>The course is visible and managed within this school.</FieldDescription>
+              </Field>
+            ) : null}
             {/* Title */}
             <Controller
               name="title"
@@ -250,7 +269,7 @@ export function CourseForm({
               render={({ field, fieldState }) => (
                 <Field data-invalid={fieldState.invalid}>
                   <FieldLabel htmlFor="description">Description</FieldLabel>
-                  <RichTextEditor field={field} />
+                  <RichTextEditor field={field} courseId={uploadCourseId} />
                   <FieldDescription>
                     Detailed description of what students will learn (max 500
                     characters)
@@ -275,6 +294,7 @@ export function CourseForm({
                     </span>
                   </FieldLabel>
                   <Uploader
+                    courseId={uploadCourseId}
                     initialPreviewUrl={existingImageUrl}
                     initialKey={existingImageKey}
                     onRemoveInitial={() => field.onChange("")}
@@ -382,39 +402,6 @@ export function CourseForm({
                 )}
               />
 
-              <Controller
-                name="priceCents"
-                control={form.control}
-                render={({ field, fieldState }) => (
-                  <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor="price">Price</FieldLabel>
-                    <Input
-                      {...field}
-                      id="price"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      placeholder="0.00"
-                      aria-invalid={fieldState.invalid}
-                      value={
-                        field.value ? String(Number(field.value) / 100) : ""
-                      }
-                      onChange={(e) => {
-                        const dollars = e.target.valueAsNumber;
-                        field.onChange(
-                          Number.isNaN(dollars) ? 0 : Math.round(dollars * 100),
-                        );
-                      }}
-                    />
-                    <FieldDescription>
-                      Course price in dollars (minimum 0)
-                    </FieldDescription>
-                    {fieldState.invalid && (
-                      <FieldError errors={[fieldState.error]} />
-                    )}
-                  </Field>
-                )}
-              />
             </div>
 
             {/* Status */}

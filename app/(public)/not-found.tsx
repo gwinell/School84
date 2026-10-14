@@ -5,7 +5,7 @@ export default function PublicNotFound() {
     <NotFoundView
       title="We couldn't find that page"
       description="This course or page doesn't exist, or it may have been unpublished by its instructor."
-      backHref="/courses"
+      backHref="/login"
       backLabel="Browse courses"
     />
   );

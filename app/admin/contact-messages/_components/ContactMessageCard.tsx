@@ -65,7 +65,7 @@ export function ContactMessageCard({ message }: ContactMessageCardProps) {
       <div className="flex items-center gap-2 border-t border-border p-3">
         <Button
           render={
-            <Link href={`mailto:${message.email}?subject=Re: Your message to KnowSphere`} />
+            <Link href={`mailto:${message.email}?subject=Re: Your message to SchoolSphere`} />
           }
           variant="outline"
           size="sm"

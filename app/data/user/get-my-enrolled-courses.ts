@@ -2,12 +2,15 @@ import "server-only";
 
 import prisma from "@/lib/prisma";
 import { getDownloadUrls } from "@/lib/s3/get-download-url";
+import { canAccessAssignedLesson } from "@/lib/course-access";
 import { requireUser } from "./require-user";
+import { resolveLearningTarget } from "@/app/dashboard/_lib/resolve-learning-target";
 
 export type tEnrolledCourse = {
   enrollmentId: string;
   id: string;
   slug: string;
+  organizationSlug: string;
   title: string;
   smallDesc: string;
   imageUrl: string | null;
@@ -17,6 +20,8 @@ export type tEnrolledCourse = {
   lessonsCount: number;
   completedCount: number;
   resumeLessonId: string | null;
+  resumeCellId: string | null;
+  hasStarted: boolean;
 };
 
 export async function getMyEnrolledCourses(): Promise<tEnrolledCourse[]> {
@@ -26,14 +31,17 @@ export async function getMyEnrolledCourses(): Promise<tEnrolledCourse[]> {
     where: {
       userId: session.user.id,
       status: "Active",
+      course: { organization: { memberships: { some: { userId: session.user.id, role: "STUDENT" } } } },
     },
     orderBy: { updatedAt: "desc" },
     select: {
       id: true,
+      accessMode: true,
       course: {
         select: {
           id: true,
           slug: true,
+          organization: { select: { slug: true } },
           title: true,
           smallDesc: true,
           fileKey: true,
@@ -46,6 +54,7 @@ export async function getMyEnrolledCourses(): Promise<tEnrolledCourse[]> {
                 orderBy: { position: "asc" },
                 select: {
                   id: true,
+                  cells: { orderBy: { position: "asc" }, select: { id: true, progress: { where: { userId: session.user.id }, select: { status: true } } } },
                   lessonProgress: {
                     where: { userId: session.user.id },
                     select: { completed: true },
@@ -63,23 +72,33 @@ export async function getMyEnrolledCourses(): Promise<tEnrolledCourse[]> {
     enrollments.map((e) => e.course.fileKey),
   );
 
-  return enrollments.map((enrollment, i) => {
+  const cursors = await prisma.learningCursor.findMany({ where: { userId: session.user.id, courseId: { in: enrollments.map((e) => e.course.id) } }, select: { courseId: true, lessonId: true, cellId: true } });
+  const cursorByCourse = new Map(cursors.map((cursor) => [cursor.courseId, cursor]));
+
+  return Promise.all(enrollments.map(async (enrollment, i) => {
     const chapters = enrollment.course.courseChapters;
     const lessons = chapters.flatMap((chapter) =>
       chapter.lessons.map((lesson) => ({
         id: lesson.id,
         completed: lesson.lessonProgress[0]?.completed ?? false,
+        cells: lesson.cells.map((cell) => ({ id: cell.id, passed: cell.progress[0]?.status === "PASSED" })),
       })),
     );
     const lessonsCount = lessons.length;
     const completedCount = lessons.filter((lesson) => lesson.completed).length;
-    const resumeLessonId =
-      lessons.find((lesson) => !lesson.completed)?.id ?? lessons[0]?.id ?? null;
+    const cursor = cursorByCourse.get(enrollment.course.id);
+    const cursorLesson = cursor ? lessons.find((lesson) => lesson.id === cursor.lessonId) : undefined;
+    const cursorAllowed = cursorLesson && (session.user.role === "admin" || enrollment.accessMode !== "SEQUENTIAL" || await canAccessAssignedLesson({ userId: session.user.id, courseId: enrollment.course.id, lessonId: cursorLesson.id }));
+    const target = resolveLearningTarget(
+      lessons,
+      cursorAllowed && cursor ? cursor : null,
+    );
 
     return {
       enrollmentId: enrollment.id,
       id: enrollment.course.id,
       slug: enrollment.course.slug,
+      organizationSlug: enrollment.course.organization.slug,
       title: enrollment.course.title,
       smallDesc: enrollment.course.smallDesc,
       imageUrl: imageUrls[i],
@@ -88,7 +107,9 @@ export async function getMyEnrolledCourses(): Promise<tEnrolledCourse[]> {
       chaptersCount: chapters.length,
       lessonsCount,
       completedCount,
-      resumeLessonId,
+      resumeLessonId: target.lessonId,
+      resumeCellId: target.cellId,
+      hasStarted: target.hasStarted,
     };
-  });
+  }));
 }

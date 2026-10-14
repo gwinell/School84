@@ -5,18 +5,18 @@ import { LessonLayoutSkeleton } from "./_components/LessonLayoutSkeleton";
 
 interface LessonLayoutProps {
   children: React.ReactNode;
-  params: Promise<{ slug: string }>;
+  params: Promise<{ slug: string; organizationSlug?: string }>;
 }
 
 export default async function LessonLayout({
   children,
   params,
 }: LessonLayoutProps) {
-  const { slug } = await params;
+  const { slug, organizationSlug } = await params;
 
   return (
     <Suspense fallback={<LessonLayoutSkeleton />}>
-      <LessonLayoutContent slug={slug}>{children}</LessonLayoutContent>
+      <LessonLayoutContent slug={slug} organizationSlug={organizationSlug}>{children}</LessonLayoutContent>
     </Suspense>
   );
 }

@@ -3,7 +3,7 @@ import { type Metadata } from "next";
 import { CancelContent } from "./_components/CancelContent";
 
 export const metadata: Metadata = {
-  title: "Payment cancelled | KnowSphere",
+  title: "Payment cancelled | SchoolSphere",
   description:
     "Your payment was cancelled. You weren't charged and can try again anytime.",
 };

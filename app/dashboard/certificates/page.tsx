@@ -6,7 +6,7 @@ import { CertificatesList } from "./_components/CertificatesList";
 import { CertificatesListSkeleton } from "./_components/CertificatesListSkeleton";
 
 export const metadata = {
-  title: "My Certificates | KnowSphere",
+  title: "My Certificates | SchoolSphere",
   description: "Certificates you have earned by completing courses.",
 };
 

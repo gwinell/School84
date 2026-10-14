@@ -2,7 +2,6 @@ import Link from "next/link";
 import {
   ChevronRightIcon,
   ClockIcon,
-  DollarSignIcon,
   GraduationCapIcon,
 } from "lucide-react";
 
@@ -10,7 +9,6 @@ import { CourseImage } from "@/components/general/CourseImage";
 import { EmptyState } from "@/components/general/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
-import { formatPrice } from "@/lib/format-price";
 import {
   Card,
   CardContent,
@@ -96,7 +94,7 @@ export function RecentCourses({ courses }: RecentCoursesProps) {
             {courses.map((course) => (
               <li key={course.id}>
                 <Link
-                  href={`/admin/courses/${course.id}`}
+                  href={`/admin/courses/${course.id}/edit`}
                   className="group flex items-center gap-3 rounded-lg px-2 py-3 transition-colors hover:bg-muted/50"
                 >
                   <div className="relative size-12 shrink-0 overflow-hidden rounded-md bg-muted">
@@ -122,10 +120,6 @@ export function RecentCourses({ courses }: RecentCoursesProps) {
                       <span className="inline-flex items-center gap-1">
                         <ClockIcon className="size-3" aria-hidden />
                         {formatDuration(course.duration)}
-                      </span>
-                      <span className="inline-flex items-center gap-1">
-                        <DollarSignIcon className="size-3" aria-hidden />
-                        {formatPrice(course.priceCents)}
                       </span>
                     </div>
                   </div>

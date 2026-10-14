@@ -13,17 +13,11 @@ import {
 } from "@/lib/zodSchemas";
 import { deriveCourseSlug } from "@/lib/formatSlug";
 import { z } from "zod";
-import { requireAdmin } from "@/app/data/admin/require-admin";
+import { requireCourseTeacher } from "@/app/data/teacher/require-course-teacher";
 import arcjet, { detectBot, fixedWindow } from "@/lib/arcjet";
 import { request } from "@arcjet/next";
 import { revalidatePath } from "next/cache";
 import { adminLog, safeAdminLog } from "@/lib/activity/admin-log";
-import { htmlToPlainText } from "@/lib/plain-text";
-import {
-  revertCourseProduct,
-  syncCourseProduct,
-  type SyncCourseProductResult,
-} from "@/lib/stripe/course-product";
 import {
   buildCourseFieldChanges,
   snapshotCourse,
@@ -34,6 +28,7 @@ import {
   CATEGORY_LIMIT_EXCEEDED,
   resolveCategories,
 } from "@/app/data/course/resolve-categories";
+import { canUseCourseMediaKeys } from "@/lib/teacher/course-media";
 
 const aj = arcjet
   .withRule(
@@ -51,7 +46,7 @@ const aj = arcjet
   );
 
 export async function updateCourse(courseId: string, values: CourseSchemaType) {
-  const session = await requireAdmin(); // checks if the user is an admin, if not, it will redirect to the login page
+  const { session } = await requireCourseTeacher(courseId);
 
   try {
     const req = await request();
@@ -74,8 +69,10 @@ export async function updateCourse(courseId: string, values: CourseSchemaType) {
 
     const { categories: categoryNames, ...courseFields } = validatedData.data;
 
+    const currentCourse = await prisma.course.findUnique({ where: { id: courseId }, select: { organizationId: true } });
+    if (!currentCourse) return errorResponse("Курс не найден", null);
     const slugTaken = await prisma.course.findFirst({
-      where: { slug: courseFields.slug, NOT: { id: courseId } },
+      where: { organizationId: currentCourse.organizationId, slug: courseFields.slug, NOT: { id: courseId } },
       select: { id: true },
     });
     if (slugTaken) {
@@ -98,7 +95,6 @@ export async function updateCourse(courseId: string, values: CourseSchemaType) {
         level: true,
         status: true,
         fileKey: true,
-        stripePriceId: true,
         categories: { select: { name: true }, orderBy: { name: "asc" } },
       },
     });
@@ -107,23 +103,15 @@ export async function updateCourse(courseId: string, values: CourseSchemaType) {
       return errorResponse("Course not found", null);
     }
 
-    const stripeDescription =
-      htmlToPlainText(courseFields.description) || courseFields.smallDesc.trim();
-
-    // Prices are immutable in Stripe, so only touch the product when an
-    // editable, checkout-visible field actually changed.
-    let stripeSync: SyncCourseProductResult | null = null;
-    if (
-      before.title !== courseFields.title ||
-      htmlToPlainText(before.description) !== stripeDescription ||
-      before.priceCents !== courseFields.priceCents
-    ) {
-      stripeSync = await syncCourseProduct({
-        currentPriceId: before.stripePriceId,
-        title: courseFields.title,
-        description: stripeDescription || undefined,
-        priceCents: courseFields.priceCents,
-      });
+    const nextFileKey = courseFields.fileKey ?? null;
+    if (!(await canUseCourseMediaKeys({
+      keys: nextFileKey ? [nextFileKey] : [],
+      existingKeys: before.fileKey ? [before.fileKey] : [],
+      courseId,
+      userId: session.user.id,
+      role: session.user.role,
+    }))) {
+      return errorResponse("Course image upload is not available", null);
     }
 
     let course;
@@ -137,27 +125,28 @@ export async function updateCourse(courseId: string, values: CourseSchemaType) {
           where: { id: courseId },
           data: {
             ...courseFields,
-            ...(stripeSync ? { stripePriceId: stripeSync.priceId } : {}),
+            stripePriceId: null,
             categories: {
               set: categories.map((c) => ({ id: c.id })),
             },
           },
         });
 
-        if (courseFields.fileKey) {
+        if (nextFileKey && nextFileKey !== before.fileKey) {
           await tx.pendingUpload
-            .delete({ where: { key: courseFields.fileKey } })
+            .deleteMany({
+              where: {
+                key: nextFileKey,
+                userId: session.user.id,
+                courseId,
+              },
+            })
             .catch(() => {});
         }
 
         return updated;
       });
     } catch (err) {
-      // The DB write is the source of truth; roll Stripe back to the old price
-      // if it failed so Checkout can't charge the new amount.
-      if (stripeSync) {
-        await revertCourseProduct(stripeSync);
-      }
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
         err.code === "P2002"
@@ -247,7 +236,7 @@ export async function reorderLessons({
       return errorResponse("Chapter ID is required", null);
     }
 
-    await requireAdmin(); // checks if the user is an admin, if not, it will redirect to the login page
+    await requireCourseTeacher(courseId);
 
     const chapter = await prisma.courseChapter.findUnique({
       where: { id: chapterId },
@@ -311,7 +300,7 @@ export async function reorderChapters({
       return errorResponse("Course ID is required", null);
     }
 
-    await requireAdmin(); // checks if the user is an admin, if not, it will redirect to the login page
+    await requireCourseTeacher(courseId);
 
     const existingChapters = await prisma.courseChapter.findMany({
       where: { courseId },
@@ -354,14 +343,13 @@ export async function reorderChapters({
 }
 
 export async function createChapter(values: ChapterSchemaType) {
-  await requireAdmin(); // checks if the user is an admin, if not, it will redirect to the login page
-
   try {
     const validatedData = chapterSchema.safeParse(values);
 
     if (!validatedData.success) {
       return errorResponse("Invalid data", z.treeifyError(validatedData.error));
     }
+    await requireCourseTeacher(validatedData.data.courseId);
 
     await prisma.$transaction(async (tx) => {
       const maxPosition = await tx.courseChapter.findFirst({
@@ -402,14 +390,51 @@ export async function createChapter(values: ChapterSchemaType) {
   }
 }
 
-export async function createLesson(values: LessonSchemaType) {
-  await requireAdmin(); // checks if the user is an admin, if not, it will redirect to the login page
+export async function updateChapter({
+  courseId,
+  chapterId,
+  title,
+}: {
+  courseId: string;
+  chapterId: string;
+  title: string;
+}) {
+  await requireCourseTeacher(courseId);
+  const cleanTitle = title.trim();
+  if (cleanTitle.length < 3 || cleanTitle.length > 120) {
+    return errorResponse("Название главы должно содержать от 3 до 120 символов", null);
+  }
+  try {
+    const result = await prisma.courseChapter.updateMany({
+      where: { id: chapterId, courseId },
+      data: { title: cleanTitle },
+    });
+    if (!result.count) return errorResponse("Глава не найдена", null);
+    revalidatePath(`/admin/courses/${courseId}/edit`);
+    revalidatePath(`/admin/courses/${courseId}/chapters/${chapterId}`);
+    return successResponse("Глава сохранена", null);
+  } catch {
+    return errorResponse("Не удалось сохранить главу", null);
+  }
+}
 
+export async function createLesson(values: LessonSchemaType) {
   try {
     const validatedData = lessonSchema.safeParse(values);
 
     if (!validatedData.success) {
       return errorResponse("Invalid data", z.treeifyError(validatedData.error));
+    }
+    const { session } = await requireCourseTeacher(validatedData.data.courseId);
+    const chapterExists = await prisma.courseChapter.findFirst({ where: { id: validatedData.data.chapterId, courseId: validatedData.data.courseId }, select: { id: true } });
+    if (!chapterExists) return errorResponse("Chapter not found", null);
+    if (!(await canUseCourseMediaKeys({
+      keys: validatedData.data.videoKey ? [validatedData.data.videoKey] : [],
+      courseId: validatedData.data.courseId,
+      userId: session.user.id,
+      role: session.user.role,
+    }))) {
+      return errorResponse("Video upload is not available", null);
     }
 
     await prisma.$transaction(async (tx) => {
@@ -432,7 +457,13 @@ export async function createLesson(values: LessonSchemaType) {
 
         if (validatedData.data.videoKey) {
           await tx.pendingUpload
-            .delete({ where: { key: validatedData.data.videoKey } })
+            .deleteMany({
+              where: {
+                key: validatedData.data.videoKey,
+                userId: session.user.id,
+                courseId: validatedData.data.courseId,
+              },
+            })
             .catch(() => {});
         }
 
@@ -468,11 +499,11 @@ export async function deleteLesson({
   chapterId: string;
   lessonId: string;
 }) {
-  await requireAdmin(); // checks if the user is an admin, if not, it will redirect to the login page
+  await requireCourseTeacher(courseId);
 
   try {
-    const lesson = await prisma.lesson.findUnique({
-      where: { id: lessonId },
+    const lesson = await prisma.lesson.findFirst({
+      where: { id: lessonId, chapterId, chapter: { courseId } },
       select: { videoKey: true },
     });
 
@@ -480,8 +511,8 @@ export async function deleteLesson({
       return errorResponse("Lesson not found", null);
     }
 
-    const chapterwithlessons = await prisma.courseChapter.findUnique({
-      where: { id: chapterId },
+    const chapterwithlessons = await prisma.courseChapter.findFirst({
+      where: { id: chapterId, courseId },
       select: {
         lessons: {
           orderBy: { position: "asc" },
@@ -566,7 +597,7 @@ export async function deleteChapter({
   courseId: string;
   chapterId: string;
 }) {
-  await requireAdmin(); // checks if the user is an admin, if not, it will redirect to the login page
+  await requireCourseTeacher(courseId);
 
   try {
     const courseWithChapters = await prisma.course.findUnique({

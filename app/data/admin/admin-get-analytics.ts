@@ -14,7 +14,6 @@ export type tAnalyticsSparkPoint = {
 export type tAnalyticsDailyPoint = {
   date: string;
   enrollments: number;
-  revenue: number;
 };
 
 export type tAnalyticsRecentCourse = {
@@ -22,7 +21,6 @@ export type tAnalyticsRecentCourse = {
   title: string;
   smallDesc: string;
   imageUrl: string | null;
-  priceCents: number;
   duration: number;
   level: "BEGINNER" | "INTERMEDIATE" | "ADVANCED";
   slug: string;
@@ -35,13 +33,10 @@ export type tAnalyticsStats = {
   totalCourses: number;
   publishedCourses: number;
   activeEnrollments: number;
-  pendingEnrollments: number;
   contactMessages: number;
-  totalRevenueCents: number;
   newUsersThisPeriod: number;
   newCoursesThisPeriod: number;
   newEnrollmentsThisPeriod: number;
-  newRevenueCentsThisPeriod: number;
 };
 
 export type tAnalytics = {
@@ -50,18 +45,13 @@ export type tAnalytics = {
     users: tAnalyticsSparkPoint[];
     courses: tAnalyticsSparkPoint[];
     enrollments: tAnalyticsSparkPoint[];
-    revenue: tAnalyticsSparkPoint[];
   };
   enrollmentTrend: tAnalyticsDailyPoint[];
   recentCourses: tAnalyticsRecentCourse[];
 };
 
 type DayCountRow = { day: Date; count: number };
-type DayEnrollmentRow = {
-  day: Date;
-  enrollments: number;
-  revenue: number;
-};
+type DayEnrollmentRow = { day: Date; enrollments: number };
 
 function startOfDayUTC(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
@@ -94,9 +84,7 @@ export async function adminGetAnalytics(): Promise<tAnalytics> {
     totalCourses,
     publishedCourses,
     activeEnrollments,
-    pendingEnrollments,
     contactMessages,
-    revenueAggregate,
     recentCourses,
     userDayRows,
     courseDayRows,
@@ -106,12 +94,7 @@ export async function adminGetAnalytics(): Promise<tAnalytics> {
     prisma.course.count(),
     prisma.course.count({ where: { status: "PUBLISHED" } }),
     prisma.enrollment.count({ where: { status: "Active" } }),
-    prisma.enrollment.count({ where: { status: "Pending" } }),
     prisma.contactMessage.count(),
-    prisma.enrollment.aggregate({
-      _sum: { amount: true },
-      where: { status: "Active" },
-    }),
     prisma.course.findMany({
       take: 5,
       orderBy: { createdAt: "desc" },
@@ -120,7 +103,6 @@ export async function adminGetAnalytics(): Promise<tAnalytics> {
         title: true,
         smallDesc: true,
         fileKey: true,
-        priceCents: true,
         duration: true,
         level: true,
         slug: true,
@@ -146,8 +128,7 @@ export async function adminGetAnalytics(): Promise<tAnalytics> {
     `,
     prisma.$queryRaw<DayEnrollmentRow[]>`
       SELECT date_trunc('day', "createdAt") AS day,
-             count(*)::int AS enrollments,
-             COALESCE(SUM(CASE WHEN status = 'Active' THEN amount ELSE 0 END), 0)::int AS revenue
+             count(*)::int AS enrollments
       FROM "Enrollment"
       WHERE "createdAt" >= ${startDate}
       GROUP BY 1
@@ -166,7 +147,6 @@ export async function adminGetAnalytics(): Promise<tAnalytics> {
   }
 
   const enrollmentBuckets = buildEmptyBuckets(DAYS);
-  const revenueBuckets = buildEmptyBuckets(DAYS);
   const trendBuckets = new Map<string, tAnalyticsDailyPoint>();
 
   for (let i = DAYS - 1; i >= 0; i--) {
@@ -175,23 +155,18 @@ export async function adminGetAnalytics(): Promise<tAnalytics> {
     trendBuckets.set(isoDay(day), {
       date: isoDay(day),
       enrollments: 0,
-      revenue: 0,
     });
   }
 
   for (const row of enrollmentDayRows) {
     const key = isoDay(startOfDayUTC(row.day));
     enrollmentBuckets.set(key, row.enrollments);
-    revenueBuckets.set(key, row.revenue);
-
     const trendPoint = trendBuckets.get(key);
     if (trendPoint) {
       trendPoint.enrollments += row.enrollments;
-      trendPoint.revenue += row.revenue;
     }
   }
 
-  const totalRevenueCents = revenueAggregate._sum.amount ?? 0;
   const newUsersThisPeriod = userDayRows.reduce((acc, r) => acc + r.count, 0);
   const newCoursesThisPeriod = courseDayRows.reduce(
     (acc, r) => acc + r.count,
@@ -201,11 +176,6 @@ export async function adminGetAnalytics(): Promise<tAnalytics> {
     (acc, r) => acc + r.enrollments,
     0,
   );
-  const newRevenueCentsThisPeriod = enrollmentDayRows.reduce(
-    (acc, r) => acc + r.revenue,
-    0,
-  );
-
   const sparkPointsFromBuckets = (
     buckets: Map<string, number>,
   ): tAnalyticsSparkPoint[] =>
@@ -221,19 +191,15 @@ export async function adminGetAnalytics(): Promise<tAnalytics> {
       totalCourses,
       publishedCourses,
       activeEnrollments,
-      pendingEnrollments,
       contactMessages,
-      totalRevenueCents,
       newUsersThisPeriod,
       newCoursesThisPeriod,
       newEnrollmentsThisPeriod,
-      newRevenueCentsThisPeriod,
     },
     sparklines: {
       users: sparkPointsFromBuckets(userBuckets),
       courses: sparkPointsFromBuckets(courseBuckets),
       enrollments: sparkPointsFromBuckets(enrollmentBuckets),
-      revenue: sparkPointsFromBuckets(revenueBuckets),
     },
     enrollmentTrend: Array.from(trendBuckets.values()),
     recentCourses: recentCourses.map((c, i) => ({
@@ -241,7 +207,6 @@ export async function adminGetAnalytics(): Promise<tAnalytics> {
       title: c.title,
       smallDesc: c.smallDesc,
       imageUrl: recentImageUrls[i],
-      priceCents: c.priceCents,
       duration: c.duration,
       level: c.level,
       slug: c.slug,

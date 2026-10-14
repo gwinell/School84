@@ -9,7 +9,7 @@ import { CategoriesListSkeleton } from "./_components/CategoriesListSkeleton";
 import { NewCategoryDialog } from "./_components/NewCategoryDialog";
 
 export const metadata = {
-  title: "Categories | KnowSphere Admin",
+  title: "Categories | SchoolSphere Admin",
 };
 
 export default async function CategoriesPage() {

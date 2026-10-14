@@ -27,6 +27,7 @@ interface CourseSummaryCardProps {
   course: tCourseDetail;
   totalLessons: number;
   slug: string;
+  organizationSlug: string;
   isEnrolled: boolean;
   isSignedIn: boolean;
   ratingAvg: number;
@@ -79,6 +80,7 @@ export function CourseSummaryCard({
   course,
   totalLessons,
   slug,
+  organizationSlug,
   isEnrolled,
   isSignedIn,
   ratingAvg,
@@ -138,6 +140,7 @@ export function CourseSummaryCard({
           <EnrollmentButton
             courseId={course.id}
             slug={slug}
+            organizationSlug={organizationSlug}
             isEnrolled={isEnrolled}
             isSignedIn={isSignedIn}
             priceCents={course.priceCents}
@@ -145,6 +148,7 @@ export function CourseSummaryCard({
           <WishlistButton
             courseId={course.id}
             slug={slug}
+            organizationSlug={organizationSlug}
             isWishlisted={isWishlisted}
             isSignedIn={isSignedIn}
             isEnrolled={isEnrolled}

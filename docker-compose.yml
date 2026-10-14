@@ -1,0 +1,135 @@
+name: school84-mvp
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-school84}
+      POSTGRES_USER: ${POSTGRES_USER:-school84}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-school84-local-password}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - school84-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    image: school84-mvp-app:${APP_IMAGE_TAG:-local}
+    build:
+      context: .
+      args:
+        BUILD_STORAGE_ENDPOINT: ${AWS_ENDPOINT_URL_S3:-http://host.docker.internal:9000}
+        BUILD_PUBLIC_IMAGES_BUCKET: ${NEXT_PUBLIC_S3_BUCKET_NAME_IMAGES:-school84-local}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      python-runner:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-school84}:${POSTGRES_PASSWORD:-school84-local-password}@db:5432/${POSTGRES_DB:-school84}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-school84-local-auth-secret-change-before-deployment}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3001}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-local-github-client}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-local-github-secret}
+      RESEND_API_KEY: ${RESEND_API_KEY:-re_local_only}
+      EMAIL_FROM: ${EMAIL_FROM:-School84 <noreply@localhost>}
+      ARCJET_KEY: ${ARCJET_KEY:-local-arcjet-key}
+      ARCJET_ENABLED: ${ARCJET_ENABLED:-false}
+      AUTH_EMAIL_MODE: ${AUTH_EMAIL_MODE:-console}
+      DEMO_LOGIN_ENABLED: ${DEMO_LOGIN_ENABLED:-true}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-local}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-local-secret}
+      AWS_ENDPOINT_URL_S3: ${AWS_ENDPOINT_URL_S3:-http://host.docker.internal:9000}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      NEXT_PUBLIC_S3_BUCKET_NAME_IMAGES: ${NEXT_PUBLIC_S3_BUCKET_NAME_IMAGES:-school84-local}
+      PYTHON_RUNNER_URL: http://python-runner:8000
+      PYTHON_RUNNER_TOKEN: ${PYTHON_RUNNER_TOKEN:-school84-local-python-runner-token}
+    ports:
+      - "127.0.0.1:3001:3000"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+      - /app/.next/cache:rw,noexec,nosuid,size=64m,uid=1001,gid=1001
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 256
+    mem_limit: 768m
+    cpus: 2.0
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/login').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  python-runner:
+    build: ./runner/service
+    restart: unless-stopped
+    environment:
+      RUNNER_TOKEN: ${PYTHON_RUNNER_TOKEN:-school84-local-python-runner-token}
+      SANDBOX_IMAGE: school84-python-sandbox:local
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 256m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  schema-init:
+    build:
+      context: .
+      target: schema-init
+    profiles: ["init-schema"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-school84}:${POSTGRES_PASSWORD:-school84-local-password}@db:5432/${POSTGRES_DB:-school84}
+    restart: "no"
+
+  python-sandbox-image:
+    build: ./runner/sandbox
+    image: school84-python-sandbox:local
+    profiles: ["build-image"]
+
+  local-admin:
+    image: postgres:16-alpine
+    profiles: ["local-admin"]
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-school84}
+      POSTGRES_USER: ${POSTGRES_USER:-school84}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-school84-local-password}
+    volumes:
+      - ./scripts/local-admin.sql:/local-admin.sql:ro
+    entrypoint: ["psql"]
+    command:
+      - postgresql://${POSTGRES_USER:-school84}:${POSTGRES_PASSWORD:-school84-local-password}@db:5432/${POSTGRES_DB:-school84}
+      - -v
+      - ON_ERROR_STOP=1
+      - -f
+      - /local-admin.sql
+    restart: "no"
+
+volumes:
+  school84-db:

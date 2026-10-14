@@ -8,8 +8,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { ArrowLeftIcon, ShieldAlertIcon } from "lucide-react";
-import Image from "next/image";
 import Link from "next/link";
+import { Brand } from "@/components/brand";
 
 export default function NotAdminPage() {
   return (
@@ -30,11 +30,7 @@ export default function NotAdminPage() {
           href="/"
           className="flex items-center gap-2 self-center font-medium"
         >
-          <Image src="/logo.png" alt="KnowSphere Logo" width={32} height={32} />
-          <span className="text-md">
-            <span className="font-bold text-primary">Know</span>
-            Sphere
-          </span>
+          <Brand />
         </Link>
 
         <Card className="w-full mx-auto">

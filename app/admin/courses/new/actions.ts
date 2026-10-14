@@ -6,15 +6,10 @@ import { errorResponse, successResponse } from "@/lib/responses";
 import { type CourseSchemaType, courseSchema } from "@/lib/zodSchemas";
 import { deriveCourseSlug } from "@/lib/formatSlug";
 import { z } from "zod";
-import { requireAdmin } from "@/app/data/admin/require-admin";
+import { requireTeacher } from "@/app/data/teacher/require-teacher";
 import arcjet, { detectBot, fixedWindow } from "@/lib/arcjet";
 import { request } from "@arcjet/next";
 import { safeAdminLog } from "@/lib/activity/admin-log";
-import { htmlToPlainText } from "@/lib/plain-text";
-import {
-  createCourseProduct,
-  deleteCourseProduct,
-} from "@/lib/stripe/course-product";
 import {
   CATEGORY_LIMIT_EXCEEDED,
   resolveCategories,
@@ -35,8 +30,8 @@ const aj = arcjet
     }),
   );
 
-export async function createCourse(values: CourseSchemaType) {
-  const session = await requireAdmin();
+export async function createCourse(values: CourseSchemaType, requestedOrganizationId?: string) {
+  const session = await requireTeacher();
 
   if (!session?.user?.id) {
     return errorResponse("Unauthorized", null);
@@ -63,8 +58,23 @@ export async function createCourse(values: CourseSchemaType) {
 
     const { categories: categoryNames, ...courseFields } = validatedData.data;
 
-    const slugTaken = await prisma.course.findUnique({
-      where: { slug: courseFields.slug },
+    const organizations = await prisma.organizationMembership.findMany({
+      where: { userId: session.user.id, role: { in: ["OWNER", "ADMIN"] } },
+      orderBy: { createdAt: "asc" },
+      select: { organizationId: true },
+    });
+    const organization = requestedOrganizationId
+      ? organizations.find((item) => item.organizationId === requestedOrganizationId)
+      : organizations.length === 1 ? organizations[0] : undefined;
+    if (!organization) {
+      return errorResponse(
+        organizations.length > 1 ? "Выберите школу, в которой будет создан курс" : "Сначала создайте школу или получите права администратора школы",
+        null,
+      );
+    }
+
+    const slugTaken = await prisma.course.findFirst({
+      where: { organizationId: organization.organizationId, slug: courseFields.slug },
       select: { id: true },
     });
     if (slugTaken) {
@@ -73,17 +83,6 @@ export async function createCourse(values: CourseSchemaType) {
         null,
       );
     }
-
-    const stripeDescription =
-      htmlToPlainText(courseFields.description) ||
-      courseFields.smallDesc.trim() ||
-      undefined;
-
-    const stripeProduct = await createCourseProduct({
-      title: courseFields.title,
-      description: stripeDescription,
-      priceCents: courseFields.priceCents,
-    });
 
     let course;
     try {
@@ -94,7 +93,8 @@ export async function createCourse(values: CourseSchemaType) {
           data: {
             ...courseFields,
             userId: session.user.id,
-            stripePriceId: stripeProduct.priceId,
+            organizationId: organization.organizationId,
+            stripePriceId: null,
             categories: {
               connect: categories.map((c) => ({ id: c.id })),
             },
@@ -110,9 +110,6 @@ export async function createCourse(values: CourseSchemaType) {
         return created;
       });
     } catch (err) {
-      // The Stripe product was created before the DB write; if the write failed
-      // it would be orphaned, so clean it up best-effort.
-      await deleteCourseProduct(stripeProduct.productId);
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
         err.code === "P2002"
@@ -136,7 +133,6 @@ export async function createCourse(values: CourseSchemaType) {
       metadata: {
         status: course.status,
         level: course.level,
-        priceCents: course.priceCents,
         categories: categoryNames,
       },
     });

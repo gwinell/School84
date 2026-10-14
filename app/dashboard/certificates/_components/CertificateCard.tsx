@@ -86,7 +86,7 @@ export function CertificateCard({ certificate }: CertificateCardProps) {
         <div className="flex flex-wrap items-center gap-2">
           {live ? (
             <Link
-              href={`/dashboard/courses/${live.slug}`}
+              href={`/dashboard/schools/${encodeURIComponent(live.organizationSlug)}/courses/${encodeURIComponent(live.slug)}`}
               className={buttonVariants({ variant: "ghost", size: "sm" })}
             >
               View course

@@ -1,19 +1,10 @@
-import { getOptionalSession } from "./_lib/get-optional-session";
-import { FAQ } from "./_components/FAQ";
-import { Features } from "./_components/Features";
-import { Hero } from "./_components/Hero";
-import { Testimonials } from "./_components/Testimonials";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+
+import { auth } from "@/lib/auth";
 
 export default async function Page() {
-  const session = await getOptionalSession();
-  const isAuthenticated = Boolean(session?.user);
-
-  return (
-    <>
-      <Hero isAuthenticated={isAuthenticated} />
-      <Features />
-      <Testimonials />
-      <FAQ />
-    </>
-  );
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) redirect("/login");
+  redirect(session.user.role === "admin" ? "/admin" : "/dashboard");
 }

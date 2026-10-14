@@ -13,18 +13,20 @@ import { Label } from "@/components/ui/label";
 import { authClient } from "@/lib/auth-client";
 import { GithubIcon, LoaderIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useState, useTransition, type FormEvent } from "react";
 import { toast } from "sonner";
 
 interface LoginFormProps {
   redirectTo?: string;
+  demoLoginEnabled?: boolean;
 }
 
-export function LoginForm({ redirectTo = "/" }: LoginFormProps) {
+export function LoginForm({ redirectTo = "/", demoLoginEnabled = false }: LoginFormProps) {
   const router = useRouter();
 
   const [githubPending, startGitHubTransition] = useTransition();
   const [emailPending, startEmailTransition] = useTransition();
+  const [demoPending, startDemoTransition] = useTransition();
   const [email, setEmail] = useState("");
 
   async function signInWithGitHub() {
@@ -36,7 +38,7 @@ export function LoginForm({ redirectTo = "/" }: LoginFormProps) {
           onSuccess: () => {
             toast.success("Successfully logged in!");
           },
-          onError: (error) => {
+          onError: (error: { error: { message: string } }) => {
             console.error("Error logging in with GitHub:", error);
 
             toast.error(`Error logging in: ${error.error.message}`);
@@ -46,7 +48,8 @@ export function LoginForm({ redirectTo = "/" }: LoginFormProps) {
     });
   }
 
-  function signInWithEmail() {
+  function signInWithEmail(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     startEmailTransition(async () => {
       await authClient.emailOtp.sendVerificationOtp({
         email,
@@ -67,6 +70,36 @@ export function LoginForm({ redirectTo = "/" }: LoginFormProps) {
     });
   }
 
+  function signInAsDemo(email: string) {
+    startDemoTransition(async () => {
+      const sent = await authClient.emailOtp.sendVerificationOtp({
+        email,
+        type: "sign-in",
+      });
+
+      if (sent.error) {
+        toast.error(`Не удалось войти: ${sent.error.message}`);
+        return;
+      }
+
+      await authClient.signIn.emailOtp({
+        email,
+        otp: "840084",
+        fetchOptions: {
+          onSuccess: () => {
+            toast.success("Вы вошли в демо-аккаунт");
+            router.push(redirectTo);
+            router.refresh();
+          },
+          onError: (error: { error: { message: string } }) => {
+            console.error("Demo sign-in failed:", error);
+            toast.error(`Не удалось войти: ${error.error.message}`);
+          },
+        },
+      });
+    });
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -77,6 +110,30 @@ export function LoginForm({ redirectTo = "/" }: LoginFormProps) {
       </CardHeader>
 
       <CardContent>
+        {demoLoginEnabled && (
+          <div className="mb-5 space-y-2 rounded-lg border bg-muted/40 p-3">
+            <p className="text-sm font-medium">Быстрый вход для проверки</p>
+            <Button
+              className="w-full"
+              variant="outline"
+              onClick={() => signInAsDemo("admin@school84.local")}
+              disabled={demoPending}
+            >
+              {demoPending ? <LoaderIcon size={16} className="animate-spin" /> : null}
+              Войти как преподаватель
+            </Button>
+            <Button
+              className="w-full"
+              variant="outline"
+              onClick={() => signInAsDemo("student@school84.local")}
+              disabled={demoPending}
+            >
+              {demoPending ? <LoaderIcon size={16} className="animate-spin" /> : null}
+              Войти как ученик
+            </Button>
+          </div>
+        )}
+
         <Button
           className="w-full"
           variant="outline"
@@ -105,12 +162,14 @@ export function LoginForm({ redirectTo = "/" }: LoginFormProps) {
           </span>
         </div>
 
-        <div className="space-y-4">
+        <form className="space-y-4" onSubmit={signInWithEmail}>
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
             <Input
               id="email"
               type="email"
+              name="email"
+              autoComplete="email"
               placeholder="you@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -120,7 +179,7 @@ export function LoginForm({ redirectTo = "/" }: LoginFormProps) {
 
           <Button
             className="w-full"
-            onClick={signInWithEmail}
+            type="submit"
             disabled={emailPending || !email}
           >
             {emailPending ? (
@@ -132,7 +191,7 @@ export function LoginForm({ redirectTo = "/" }: LoginFormProps) {
               <>Send OTP</>
             )}
           </Button>
-        </div>
+        </form>
       </CardContent>
     </Card>
   );

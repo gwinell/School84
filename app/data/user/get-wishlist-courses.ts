@@ -12,6 +12,7 @@ const MAX_PAGE_SIZE = 50;
 export type tWishlistCourse = {
   id: string;
   slug: string;
+  organization: { id: string; name: string; slug: string; logoUrl: string | null; primaryColor: string | null };
   title: string;
   smallDesc: string;
   duration: number;
@@ -68,6 +69,7 @@ export async function getMyWishlistCourses({
           select: {
             id: true,
             slug: true,
+            organization: { select: { id: true, name: true, slug: true, logoUrl: true, primaryColor: true } },
             title: true,
             smallDesc: true,
             duration: true,
@@ -116,6 +118,7 @@ export async function getMyWishlistCourses({
     return {
       id: row.course.id,
       slug: row.course.slug,
+      organization: row.course.organization,
       title: row.course.title,
       smallDesc: row.course.smallDesc,
       duration: row.course.duration,

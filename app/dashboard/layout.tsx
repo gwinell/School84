@@ -1,15 +1,20 @@
 import type { ReactNode } from "react";
+import { requireUser } from "@/app/data/user/require-user";
 
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 
 import { DashboardHeader } from "./_components/DashboardHeader";
 import { DashboardSidebar } from "./_components/DashboardSidebar";
+import { getMyOrganizations } from "@/app/data/organization/actions";
 
 interface DashboardLayoutProps {
   children: ReactNode;
 }
 
-export default function DashboardLayout({ children }: DashboardLayoutProps) {
+export default async function DashboardLayout({ children }: DashboardLayoutProps) {
+  const [session, organizations] = await Promise.all([requireUser(), getMyOrganizations()]);
+  const schools = organizations.map(({ organization }) => organization);
+  const hasTeachingAccess = organizations.some(({ role }) => role === "OWNER" || role === "ADMIN" || role === "TEACHER");
   return (
     <SidebarProvider
       className="h-svh overflow-hidden"
@@ -21,7 +26,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       }
     >
       {/* Sidebar */}
-      <DashboardSidebar variant="inset" />
+      <DashboardSidebar variant="inset" role={session.user.role ?? undefined} hasTeachingAccess={hasTeachingAccess} schools={schools} />
 
       <SidebarInset className="min-h-0 overflow-hidden">
         {/* Header */}

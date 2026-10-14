@@ -1,14 +1,16 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
+import { canAccessAssignedLesson } from "@/lib/course-access";
 
 import arcjet, { fixedWindow } from "@/lib/arcjet";
 import { request } from "@arcjet/next";
-import { issueCertificateIfEligible } from "@/lib/certificates/issue-certificate-if-eligible";
 import prisma from "@/lib/prisma";
 import { errorResponse, successResponse } from "@/lib/responses";
 import { type tApiResponse } from "@/types/api";
 import { requireUser } from "@/app/data/user/require-user";
+import { getCourseLearnerAccess } from "@/app/data/user/course-learner-access";
 
 const aj = arcjet.withRule(
   fixedWindow({
@@ -23,16 +25,14 @@ interface SetLessonCompletionInput {
   completed: boolean;
 }
 
-type SetLessonCompletionData = {
-  certificateJustIssued: boolean;
-  verificationCode: string | null;
-};
-
 export async function setLessonCompletionAction({
   lessonId,
   completed,
-}: SetLessonCompletionInput): Promise<tApiResponse<SetLessonCompletionData>> {
+}: SetLessonCompletionInput): Promise<tApiResponse<null>> {
   const session = await requireUser();
+  if (!z.object({ lessonId: z.string().min(1), completed: z.boolean() }).safeParse({ lessonId, completed }).success) {
+    return errorResponse("Invalid lesson progress", null);
+  }
 
   try {
     const req = await request();
@@ -41,10 +41,7 @@ export async function setLessonCompletionAction({
     });
 
     if (decision.isDenied()) {
-      return errorResponse("Too many requests. Please try again later.", {
-        certificateJustIssued: false,
-        verificationCode: null,
-      });
+      return errorResponse("Too many requests. Please try again later.", null);
     }
 
     const lesson = await prisma.lesson.findUnique({
@@ -54,37 +51,37 @@ export async function setLessonCompletionAction({
         chapter: {
           select: {
             course: {
-              select: { id: true, slug: true },
+              select: { id: true, slug: true, status: true, organizationId: true },
             },
           },
         },
       },
     });
 
-    if (!lesson) {
-      return errorResponse("Lesson not found", {
-        certificateJustIssued: false,
-        verificationCode: null,
-      });
+    if (!lesson || lesson.chapter.course.status !== "PUBLISHED") {
+      return errorResponse("Lesson not found", null);
     }
 
     const { id: courseId, slug } = lesson.chapter.course;
 
-    const enrollment = await prisma.enrollment.findUnique({
-      where: {
-        userId_courseId: {
-          userId: session.user.id,
-          courseId,
-        },
-      },
-      select: { status: true },
-    });
+    const enrollment = await getCourseLearnerAccess({ userId: session.user.id, userRole: session.user.role, courseId, organizationId: lesson.chapter.course.organizationId });
+    if (!enrollment) {
+      return errorResponse("You are not enrolled in this course", null);
+    }
 
-    if (!enrollment || enrollment.status !== "Active") {
-      return errorResponse("You are not enrolled in this course", {
-        certificateJustIssued: false,
-        verificationCode: null,
-      });
+    if (enrollment.accessMode === "SEQUENTIAL" && !(await canAccessAssignedLesson({
+      userId: session.user.id, courseId, lessonId,
+    }))) {
+      return errorResponse("Complete all accepted tasks in previous lessons first", null);
+    }
+    if (completed) {
+      const cells = await prisma.lessonCell.findMany({ where: { lessonId }, select: { id: true } });
+      const passedCount = cells.length ? await prisma.lessonCellProgress.count({
+        where: { userId: session.user.id, lessonCellId: { in: cells.map((cell) => cell.id) }, status: "PASSED" },
+      }) : 0;
+      if (passedCount !== cells.length) {
+        return errorResponse("Complete every lesson cell before marking the lesson complete", null);
+      }
     }
 
     await prisma.lessonProgress.upsert({
@@ -104,34 +101,14 @@ export async function setLessonCompletionAction({
       },
     });
 
-    let certificateJustIssued = false;
-    let verificationCode: string | null = null;
-
-    if (completed) {
-      const result = await issueCertificateIfEligible({
-        userId: session.user.id,
-        courseId,
-      });
-
-      if (result.issued) {
-        certificateJustIssued = true;
-        verificationCode = result.verificationCode;
-      }
-    }
-
     revalidatePath(`/dashboard/courses/${slug}/${lessonId}`);
     revalidatePath(`/dashboard/courses/${slug}`);
     revalidatePath("/dashboard");
-    revalidatePath("/dashboard/certificates");
-
     return successResponse(
       completed ? "Lesson marked as completed" : "Lesson marked as incomplete",
-      { certificateJustIssued, verificationCode },
+      null,
     );
   } catch {
-    return errorResponse("Failed to update progress", {
-      certificateJustIssued: false,
-      verificationCode: null,
-    });
+    return errorResponse("Failed to update progress", null);
   }
 }

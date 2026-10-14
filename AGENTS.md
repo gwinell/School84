@@ -5,26 +5,26 @@ Notes for OpenCode sessions working in this repo.
 ## Tooling
 
 - Package manager is **pnpm** (`pnpm-lock.yaml`, `pnpm-workspace.yaml`). Do not use npm/yarn.
-- Scripts (`package.json`): `dev`, `build`, `start`, `lint`, `typecheck` (`tsc --noEmit`), `stripe:listen` (forwards to `localhost:3000/api/webhook/stripe`). There is **no** `test` or `format` script — invoke other binaries directly (e.g. `pnpm exec prisma generate`).
+- Scripts (`package.json`): `dev`, `build`, `start`, `lint`, `typecheck` (`tsc --noEmit`), `test` (Node regressions), and `test:runner` (Python unittest regressions). There is no `format` script. pnpm is pinned to **11.25.0** in `packageManager`.
 - `postinstall` runs `prisma generate` automatically, so `lib/generated/prisma/` is populated after a fresh `pnpm install`. Re-run it manually after any `prisma/schema.prisma` change.
-- After edits, verify with `pnpm lint` then `pnpm typecheck`. No test suite exists; do not invent a runner without asking.
+- After edits, verify with `pnpm test`, `pnpm test:runner`, `pnpm lint`, `pnpm typecheck`, and `pnpm build`. Tests are explicitly authorized for this audit.
 - Path alias: `@/*` -> repo root (`tsconfig.json`).
-- `pnpm-workspace.yaml` allows only `@prisma/engines` and `prisma` to run install scripts; `sharp` and `unrs-resolver` are blocked.
-- `README.md` is unedited `create-next-app` boilerplate that still mentions npm/yarn/bun. Ignore it; follow this file instead.
+- `pnpm-workspace.yaml` uses pnpm 11 `allowBuilds` booleans: `@prisma/engines`, `prisma`, and `sharp` are allowed; `msw` and `unrs-resolver` are blocked. Same-major security overrides are documented there.
+- `README.md` documents local Docker setup, explicit initial schema setup, regression commands, and release/rollback controls.
 
 ## Prisma (v7, new client generator)
 
 - Schema: `prisma/schema.prisma`. Generator is `prisma-client` (not `prisma-client-js`) with `output = "../lib/generated/prisma"`.
 - `lib/generated/prisma/` is **gitignored** — it is not in the repo. After clone and after any schema change run `pnpm exec prisma generate` or imports from `@/lib/prisma` will fail.
 - Import path inside `lib/prisma.ts` is `from "./generated/prisma/client"` (note the nested `client`), not the v6 default. Constructed with `@prisma/adapter-pg` + `DATABASE_URL`; cached on `global` in dev.
-- No `prisma/migrations/` folder. Sync schema to the DB with `pnpm exec prisma db push`; do not commit migration folders unless asked.
+- No `prisma/migrations/` folder. For a fresh local install only, explicitly initialize with `docker-compose --profile init-schema run --build --rm schema-init` or `pnpm exec prisma db push` after reviewing the schema. App startup never changes schema. Existing deployments require a DB backup and must not run schema sync, seed reset, or remove the volume without explicit schema-change authorization. Do not commit migration folders unless asked.
 - `prisma.config.ts` imports `dotenv/config` so Prisma CLI reads `.env`. `datasource db` block only has `provider`; the URL comes from `prisma.config.ts`.
 - Datasource is PostgreSQL (Neon in `.env`); `DATABASE_URL` must be a valid `postgresql://` URL with `?sslmode=require`.
 
 ## Environment / env validation
 
 - All env vars are validated at build/runtime by `@t3-oss/env-nextjs` in `lib/env.ts` (zod). Missing/invalid vars fail fast — edit `lib/env.ts` when adding a var, do not read `process.env` directly in app code. (Update both `server` and the `experimental__runtimeEnv` map for client vars.)
-- Required server vars (also listed in `.env.example`): `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `RESEND_API_KEY`, `EMAIL_FROM`, `ARCJET_KEY`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL_S3`, `AWS_REGION`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`. Only the `NEXT_PUBLIC_*` (`NEXT_PUBLIC_S3_BUCKET_NAME_IMAGES`) is exposed to the client.
+- Required server vars (also listed in `.env.example`): `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `RESEND_API_KEY`, `EMAIL_FROM`, `ARCJET_KEY`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL_S3`, `AWS_REGION`, and `PYTHON_RUNNER_TOKEN`. `PYTHON_RUNNER_URL` defaults to localhost. Only the `NEXT_PUBLIC_*` (`NEXT_PUBLIC_S3_BUCKET_NAME_IMAGES`) is exposed to the client.
 - `.env` is gitignored but required locally. `.env.example` exists and is the canonical template — copy it to `.env` and fill in real values.
 
 ## Auth & middleware gotcha
@@ -40,7 +40,7 @@ Notes for OpenCode sessions working in this repo.
 
 - App Router. Route groups: `app/(auth)/` (login, verify-request), `app/(public)/` (landing: home, `/courses`, `/courses/[slug]`, `/contact`, `/terms`, `/privacy`, `/license`, `/payment/{success,cancel}`, `/certificates/[code]`). Plain folders: `app/admin/` (dashboard, courses, projects, contact-messages) and `app/not-admin/`.
 - Admin layout (`app/admin/layout.tsx`) wraps everything under `/admin` with the shadcn sidebar/header in `app/admin/_components/`.
-- API routes: `app/api/auth/[...all]` (better-auth), `app/api/s3/upload` and `app/api/s3/delete` (presigned Tigris uploads), `app/api/webhook/stripe/route.ts` (Stripe checkout completion; forwards via `pnpm stripe:listen` in dev), `app/api/admin/activity/export/route.ts` (CSV export of admin activity log).
+- API routes: `app/api/auth/[...all]` (better-auth), `app/api/s3/upload` and `app/api/s3/delete` (presigned Tigris uploads), `app/api/admin/activity/export/route.ts` (CSV export of admin activity log). The public course store and payment routes are disabled; course access will be managed by administrators.
 - Default to **server components**; only add `"use client"` when you need state, effects, or browser-only APIs. Pair client-only subtrees with a server parent that passes plain props (see the FAQ pattern: `FAQ.tsx` server + `FaqList.tsx` client).
 
 ## Data fetchers & auth helpers
@@ -72,7 +72,7 @@ Notes for OpenCode sessions working in this repo.
 
 ## Versions that bite
 
-- Next.js **16.1.1**, React **19.2.3**, Prisma **^7.9.1** (new client generator API), better-auth **^1.7.1**, Tailwind **v4**, shadcn **^3.8.5**. Do not assume v3/v15 idioms; copy the patterns already in the repo as reference.
+- Next.js **16.4.0**, React **19.3.0**, Prisma **^7.10.0** (new client generator API), better-auth **^1.7.7**, Arcjet **1.14.1** stable (email options use `deny`, not `block`), Tailwind **v4**, shadcn CLI **^3.8.5** (dev-only). Do not assume v3/v15 idioms; copy the patterns already in the repo as reference.
 
 ## Conventions (avoid regressions)
 
@@ -81,3 +81,20 @@ Notes for OpenCode sessions working in this repo.
 - Every admin page/mutation starts with `await requireAdmin()`. The `proxy.ts` gate is a convenience redirect, not the authorisation boundary.
 - Rate-limit auth and public-write endpoints by IP (Arcjet `fixedWindow`) so anonymous callers can't share one bucket.
 - Grade and authorise on the server; never ship secrets or quiz `isCorrect` flags to the client.
+
+## Local release runtime
+
+- Docker app uses a standalone Next build, UID 1001, read-only root filesystem, bounded temporary/cache mounts, dropped capabilities, and no-new-privileges. Build placeholders and CLIs stay in build/init stages.
+- Local stack binds only to loopback port 3001; unrelated port 3000 is untouched. Review a temporary candidate on loopback 3002 before replacing the local stack.
+- Runner owns the trusted local Docker socket, has a healthcheck and resource bounds, and uses authenticated requests to create disposable restricted sandboxes. Socket access remains host-control capability; this is not an internet-facing service.
+- Release only after tests and scoped security validation pass. Back up the DB, retain image IDs, smoke-check health/auth/runner/UI, and roll back images if checks fail. Never re-seed during a release.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+## This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

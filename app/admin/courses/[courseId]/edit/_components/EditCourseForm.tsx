@@ -13,12 +13,14 @@ type EditCourseFormProps = {
   courseId: string;
   course: tAdminGetCourse;
   categoryOptions: tCategoryOption[];
+  courseHrefBase?: string;
 };
 
 export function EditCourseForm({
   courseId,
   course,
   categoryOptions,
+  courseHrefBase = `/admin/courses/${courseId}`,
 }: EditCourseFormProps) {
   const submitAction: CourseFormProps["submitAction"] = (data) =>
     updateCourse(courseId, data);
@@ -43,10 +45,11 @@ export function EditCourseForm({
       pendingLabel="Saving..."
       successVerb="updated"
       successDescription="Your course has been updated."
-      redirectTo="/admin/courses"
+      redirectTo={`${courseHrefBase}/edit`}
       showReset={false}
       existingImageUrl={course.imageUrl}
       existingImageKey={course.fileKey}
+      uploadCourseId={courseId}
     />
   );
 }

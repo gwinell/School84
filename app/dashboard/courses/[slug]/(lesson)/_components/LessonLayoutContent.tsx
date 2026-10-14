@@ -2,34 +2,29 @@ import type { ReactNode } from "react";
 
 import { getCourseForLearning } from "@/app/data/user/get-course-for-learning";
 
-import { LessonChaptersList } from "./LessonChaptersList";
 import { PlayerHeader } from "./PlayerHeader";
 
 interface LessonLayoutContentProps {
   children: ReactNode;
   slug: string;
+  organizationSlug?: string;
 }
 
 export async function LessonLayoutContent({
   children,
   slug,
+  organizationSlug,
 }: LessonLayoutContentProps) {
-  const course = await getCourseForLearning({ slug });
+  const course = await getCourseForLearning({ slug, organizationSlug });
 
   return (
-    <>
-      <PlayerHeader courseSlug={course.slug} courseTitle={course.title} />
-
-      <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-        <div className="flex min-w-0 flex-col gap-4">{children}</div>
-
-        <aside className="lg:sticky lg:top-0 lg:self-start lg:max-h-[calc(100svh-var(--header-height)-var(--spacing)*12)] lg:overflow-y-auto">
-          <LessonChaptersList
-            chapters={course.courseChapters}
-            courseSlug={course.slug}
-          />
-        </aside>
-      </div>
-    </>
+    <PlayerHeader
+      courseSlug={course.slug}
+      organizationSlug={course.organization.slug}
+      courseTitle={course.title}
+      chapters={course.courseChapters}
+    >
+      {children}
+    </PlayerHeader>
   );
 }

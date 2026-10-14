@@ -24,15 +24,27 @@ model User {
   sessions      Session[]
   accounts      Account[]
 
-  courses         Course[]
-  enrollment      Enrollment[]
-  lessonProgress  LessonProgress[]
-  contactMessages ContactMessage[]
-  lessonComments  LessonComment[]
-  commentLikes    LessonCommentLike[]
-  courseReviews   CourseReview[]
-  wishlistItems   WishlistItem[]
-  certificates    Certificate[]
+  courses            Course[]
+  enrollment         Enrollment[]
+  lessonProgress     LessonProgress[]
+  lessonCellProgress LessonCellProgress[]
+  codeSubmissions    CodeSubmission[]
+  learningHeartbeats LearningActivityHeartbeat[]
+  dailyLearning      StudentDailyActivity[]
+  contactMessages    ContactMessage[]
+  lessonComments     LessonComment[]
+  commentLikes       LessonCommentLike[]
+  courseReviews      CourseReview[]
+  wishlistItems      WishlistItem[]
+  certificates       Certificate[]
+  instructorCourses  CourseInstructor[]
+  organizationMemberships OrganizationMembership[]
+  sentOrganizationInvitations OrganizationInvitation[] @relation("OrganizationInvitationCreator")
+  quizAttempts       QuizAttempt[]
+  feedbackGiven      SubmissionFeedback[] @relation("FeedbackReviewer")
+  learningCursors    LearningCursor[]
+  notifications      StudentNotification[]
+  sentInvitations    CourseInvitation[] @relation("InvitationCreator")
 
   activities Activity[]
 
@@ -182,16 +194,24 @@ model Course {
   fileKey    String?
   priceCents Int // price in integer cents
   duration   Int // duration in minutes
-  level    CourseLevel @default(BEGINNER)
+  level      CourseLevel @default(BEGINNER)
 
-  slug   String       @unique
+  slug   String
   status CourseStatus @default(DRAFT)
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade) // if the user is deleted, their courses are deleted too
   userId String
+
+  instructors CourseInstructor[]
+  invitations CourseInvitation[]
+  learningCursors LearningCursor[]
+  notifications StudentNotification[]
 
   courseChapters CourseChapter[]
   enrollment     Enrollment[]
@@ -200,9 +220,64 @@ model Course {
   certificates   Certificate[]
   categories     Category[]      @relation("CourseCategories")
 
-  stripePriceId String @unique
+  stripePriceId String? @unique
 
-  @@index([createdAt])
+  @@unique([organizationId, slug])
+  @@index([organizationId, createdAt])
+}
+
+enum OrganizationRole {
+  OWNER
+  ADMIN
+  TEACHER
+  STUDENT
+}
+
+model Organization {
+  id           String   @id @default(cuid())
+  name         String
+  slug         String   @unique
+  logoUrl      String?
+  primaryColor String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  memberships OrganizationMembership[]
+  invitations OrganizationInvitation[]
+  courses     Course[]
+
+  @@map("organization")
+}
+
+model OrganizationMembership {
+  organizationId String
+  userId         String
+  role           OrganizationRole @default(STUDENT)
+  createdAt      DateTime @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([organizationId, userId])
+  @@index([userId, role])
+  @@map("organization_membership")
+}
+
+model OrganizationInvitation {
+  id             String   @id @default(cuid())
+  organizationId String
+  email          String
+  role           OrganizationRole
+  tokenHash      String   @unique
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  createdAt      DateTime @default(now())
+  createdById    String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy      User @relation("OrganizationInvitationCreator", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, email])
+  @@index([expiresAt])
+  @@map("organization_invitation")
 }
 
 model Category {
@@ -234,6 +309,17 @@ model CourseChapter {
   @@unique([courseId, position])
 }
 
+model CourseInstructor {
+  courseId String
+  userId String
+  createdAt DateTime @default(now())
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([courseId, userId])
+  @@index([userId])
+  @@map("course_instructor")
+}
+
 model Lesson {
   id String @id @default(cuid())
 
@@ -252,17 +338,188 @@ model Lesson {
   lessonProgress LessonProgress[]
   comments       LessonComment[]
   quiz           Quiz?
+  cells          LessonCell[]
 
   @@unique([chapterId, position])
 }
 
+enum LessonCellType {
+  TEXT
+  CODE_TASK
+  QUIZ
+}
+
+enum LessonCellStatus {
+  LOCKED
+  AVAILABLE
+  IN_PROGRESS
+  PASSED
+}
+
+model LessonCell {
+  id       String         @id @default(cuid())
+  lessonId String
+  lesson   Lesson         @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  position Int
+  type     LessonCellType
+  title    String?
+
+  // TEXT cells render this as lesson notes / rich text.
+  textContent String?
+
+  // CODE_TASK cells use these fields for the prompt, editor starter, examples,
+  // test cases, and lint settings. The app validates each JSON shape by type.
+  taskPrompt  String?
+  starterCode String?
+  examples    Json?
+  testCases   Json?
+  lintConfig  Json?
+
+  quiz     Quiz?                @relation("CellQuiz")
+  progress LessonCellProgress[]
+  submissions CodeSubmission[]
+  quizAttempts QuizAttempt[]
+  activityHeartbeats LearningActivityHeartbeat[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([lessonId, position])
+  @@index([lessonId, type])
+  @@map("lesson_cell")
+}
+
+model LessonCellProgress {
+  id           String           @id @default(cuid())
+  userId       String
+  lessonCellId String
+  status       LessonCellStatus @default(LOCKED)
+  attempts     Int              @default(0)
+  passedAt     DateTime?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lessonCell LessonCell @relation(fields: [lessonCellId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lessonCellId])
+  @@index([userId, status])
+  @@index([lessonCellId, status])
+  @@map("lesson_cell_progress")
+}
+
+enum CodeSubmissionStatus {
+  ACCEPTED
+  WRONG_ANSWER
+  LINT_ERROR
+  RUNTIME_ERROR
+  TIME_LIMIT
+  SYSTEM_ERROR
+}
+
+model CodeSubmission {
+  id           String               @id @default(cuid())
+  userId       String
+  lessonCellId String
+  sourceCode   String
+  status       CodeSubmissionStatus
+  passedTests  Int                  @default(0)
+  totalTests   Int                  @default(0)
+  actualOutput String?
+  errorText    String?
+  lintOutput   String?
+  durationMs   Int                  @default(0)
+  createdAt    DateTime             @default(now())
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lessonCell LessonCell @relation(fields: [lessonCellId], references: [id], onDelete: Cascade)
+  feedback   SubmissionFeedback?
+
+  @@index([userId, lessonCellId, createdAt])
+  @@index([userId, status, createdAt])
+  @@map("code_submission")
+}
+
+enum LearningActivityKind {
+  READING
+  SOLVING
+}
+
+model LearningActivityHeartbeat {
+  id            String              @id @default(cuid())
+  eventId       String              @unique
+  userId        String
+  lessonCellId  String
+  kind          LearningActivityKind
+  activeSeconds Int
+  occurredAt    DateTime            @default(now())
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lessonCell LessonCell @relation(fields: [lessonCellId], references: [id], onDelete: Cascade)
+
+  @@index([userId, occurredAt])
+  @@map("learning_activity_heartbeat")
+}
+
+model StudentDailyActivity {
+  id               String   @id @default(cuid())
+  userId           String
+  day              DateTime @db.Date
+  readingSeconds   Int      @default(0)
+  solvingSeconds   Int      @default(0)
+  codeSubmissions  Int      @default(0)
+  acceptedTasks    Int      @default(0)
+  updatedAt        DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, day])
+  @@index([userId, day])
+  @@map("student_daily_activity")
+}
+
 model Quiz {
   id        String         @id @default(cuid())
-  lessonId  String         @unique
-  lesson    Lesson         @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  lessonId  String?        @unique
+  lesson    Lesson?        @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  cell      LessonCell?    @relation("CellQuiz", fields: [cellId], references: [id], onDelete: Cascade)
+  cellId    String?        @unique
   questions QuizQuestion[]
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
+}
+
+model QuizAttempt {
+  id String @id @default(cuid())
+  userId String
+  lessonCellId String
+  // Snapshot keyed by question id; values are selected answer ids only.
+  selectedAnswers Json
+  score Int
+  total Int
+  passed Boolean
+  submittedAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lessonCell LessonCell @relation(fields: [lessonCellId], references: [id], onDelete: Cascade)
+  feedback SubmissionFeedback?
+  @@index([userId, lessonCellId, submittedAt])
+  @@map("quiz_attempt")
+}
+
+model SubmissionFeedback {
+  id String @id @default(cuid())
+  codeSubmissionId String? @unique
+  quizAttemptId String? @unique
+  reviewerId String
+  score Int
+  comment String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  codeSubmission CodeSubmission? @relation(fields: [codeSubmissionId], references: [id], onDelete: Cascade)
+  quizAttempt QuizAttempt? @relation(fields: [quizAttemptId], references: [id], onDelete: Cascade)
+  reviewer User @relation("FeedbackReviewer", fields: [reviewerId], references: [id], onDelete: Cascade)
+  @@index([reviewerId, createdAt])
+  @@map("submission_feedback")
 }
 
 model QuizQuestion {
@@ -310,8 +567,10 @@ model ContactMessage {
 model Enrollment {
   id String @id @default(cuid())
 
-  amount Int
-  status EnrollmentStatus @default(Pending)
+  amount     Int
+  status     EnrollmentStatus @default(Pending)
+  accessMode CourseAccessMode @default(ALL_AT_ONCE)
+  dueAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -324,12 +583,71 @@ model Enrollment {
 
   @@unique([userId, courseId])
   @@index([createdAt])
+  @@index([courseId, dueAt])
+}
+
+model CourseInvitation {
+  id String @id @default(cuid())
+  courseId String
+  email String
+  tokenHash String @unique
+  accessMode CourseAccessMode @default(ALL_AT_ONCE)
+  dueAt DateTime?
+  expiresAt DateTime
+  acceptedAt DateTime?
+  createdAt DateTime @default(now())
+  createdById String
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  createdBy User @relation("InvitationCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  @@index([courseId, email])
+  @@index([expiresAt])
+  @@map("course_invitation")
+}
+
+model LearningCursor {
+  userId String
+  courseId String
+  lessonId String
+  cellId String?
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  @@id([userId, courseId])
+  @@index([courseId, updatedAt])
+  @@map("learning_cursor")
+}
+
+enum StudentNotificationType {
+  COURSE_ASSIGNED
+  COURSE_DUE_SOON
+  COURSE_OVERDUE
+}
+
+model StudentNotification {
+  id String @id @default(cuid())
+  userId String
+  courseId String
+  type StudentNotificationType
+  title String
+  body String
+  readAt DateTime?
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  @@index([userId, readAt, createdAt])
+  @@unique([userId, courseId, type])
+  @@map("student_notification")
 }
 
 enum EnrollmentStatus {
   Pending
   Active
   Cancelled
+}
+
+enum CourseAccessMode {
+  ALL_AT_ONCE
+  SEQUENTIAL
 }
 
 // Records processed Stripe webhook event IDs so replayed events are no-ops.
@@ -441,6 +759,7 @@ model WishlistItem {
 model PendingUpload {
   key       String   @id
   userId    String
+  courseId  String?
   createdAt DateTime @default(now())
 
   @@index([createdAt])

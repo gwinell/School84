@@ -12,6 +12,7 @@ interface LessonInfoProps {
   description: string | null;
   completed: boolean;
   courseSlug: string;
+  organizationSlug: string;
   prevLessonId: string | null;
   nextLessonId: string | null;
 }
@@ -33,6 +34,7 @@ export function LessonInfo({
   description,
   completed,
   courseSlug,
+  organizationSlug,
   prevLessonId,
   nextLessonId,
 }: LessonInfoProps) {
@@ -49,10 +51,10 @@ export function LessonInfo({
           <MarkCompleteButton
             lessonId={lessonId}
             completed={completed}
-            courseSlug={courseSlug}
           />
           <LessonNav
             courseSlug={courseSlug}
+            organizationSlug={organizationSlug}
             prevLessonId={prevLessonId}
             nextLessonId={nextLessonId}
           />

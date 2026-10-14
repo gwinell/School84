@@ -13,12 +13,13 @@ import {
 } from "./_lib/courses-filters";
 
 export const metadata = {
-  title: "Courses | KnowSphere",
+  title: "Courses | SchoolSphere",
   description:
     "Browse our published courses and start learning something new today.",
 };
 
 interface PublicCoursesPageProps {
+  params?: Promise<{ organizationSlug?: string }>;
   searchParams: Promise<{
     q?: string;
     level?: string;
@@ -28,9 +29,11 @@ interface PublicCoursesPageProps {
 }
 
 export default async function PublicCoursesPage({
+  params: routeParams,
   searchParams,
 }: PublicCoursesPageProps) {
-  const params = await searchParams;
+  const [params, route] = await Promise.all([searchParams, routeParams ?? Promise.resolve<{ organizationSlug?: string }>({})]);
+  const organizationSlug = route.organizationSlug;
 
   const q = typeof params.q === "string" ? params.q : "";
   const level = LEVELS.includes(params.level as LevelFilter)
@@ -41,7 +44,7 @@ export default async function PublicCoursesPage({
     : "newest";
   const page = Number.parseInt(params.page ?? "1", 10);
 
-  const catalog = await getCoursesPage({ q, level, sort, page });
+  const catalog = await getCoursesPage({ q, level, sort, page, organizationSlug });
 
   return (
     <div className="space-y-12 pb-12 md:pb-16">

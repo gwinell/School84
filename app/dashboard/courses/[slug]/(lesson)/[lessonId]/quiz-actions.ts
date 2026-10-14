@@ -1,6 +1,8 @@
 "use server";
 
 import { requireUser } from "@/app/data/user/require-user";
+import { getCourseLearnerAccess } from "@/app/data/user/course-learner-access";
+import { canAccessAssignedLesson } from "@/lib/course-access";
 import prisma from "@/lib/prisma";
 
 export type tQuizGrade = {
@@ -33,10 +35,26 @@ export async function gradeQuizAnswerAction({
         select: {
           lesson: {
             select: {
+              id: true,
               chapter: {
                 select: {
                   courseId: true,
-                  course: { select: { status: true } },
+                  course: { select: { status: true, organizationId: true } },
+                },
+              },
+            },
+          },
+          cell: {
+            select: {
+              lesson: {
+                select: {
+                  id: true,
+                  chapter: {
+                    select: {
+                      courseId: true,
+                      course: { select: { status: true, organizationId: true } },
+                    },
+                  },
                 },
               },
             },
@@ -51,21 +69,22 @@ export async function gradeQuizAnswerAction({
 
   if (!question) return null;
 
-  const chapter = question.quiz.lesson.chapter;
+  const lesson = question.quiz.lesson ?? question.quiz.cell?.lesson;
+  if (!lesson) return null;
+  const chapter = lesson.chapter;
   if (chapter.course.status !== "PUBLISHED") return null;
 
+  const enrollment = await getCourseLearnerAccess({ userId: session.user.id, userRole: session.user.role, courseId: chapter.courseId, organizationId: chapter.course.organizationId });
+  if (!enrollment) return null;
   if (session.user.role !== "admin") {
-    const enrollment = await prisma.enrollment.findUnique({
-      where: {
-        userId_courseId: {
-          userId: session.user.id,
-          courseId: chapter.courseId,
-        },
-      },
-      select: { status: true },
-    });
-
-    if (!enrollment || enrollment.status !== "Active") {
+    if (
+      enrollment.accessMode === "SEQUENTIAL" &&
+      !(await canAccessAssignedLesson({
+        userId: session.user.id,
+        courseId: chapter.courseId,
+        lessonId: lesson.id,
+      }))
+    ) {
       return null;
     }
   }

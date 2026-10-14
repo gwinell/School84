@@ -79,7 +79,7 @@ export function Hero({ isAuthenticated }: HeroProps) {
           <span className="bg-linear-to-r from-primary to-purple-500 bg-clip-text text-transparent">
             learning journey
           </span>{" "}
-          with KnowSphere.
+          with SchoolSphere.
         </h1>
 
         <p className="max-w-2xl text-base md:text-lg lg:text-xl text-muted-foreground leading-relaxed text-balance">

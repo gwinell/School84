@@ -5,6 +5,7 @@ import { env } from "@/lib/env";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { DEFAULT_BRAND_NAME } from "@/components/brand";
 
 import "./globals.css";
 
@@ -22,9 +23,9 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   metadataBase: new URL(env.BETTER_AUTH_URL),
-  title: "KnowSphere LMS",
+  title: `${DEFAULT_BRAND_NAME} — learning for every school`,
   description:
-    "A modern learning platform to master new skills, grow your career, and learn from experts on your schedule.",
+    "A learning platform for schools, teachers, and students to create courses, learn together, and track progress.",
 };
 
 interface IRootLayoutProps {

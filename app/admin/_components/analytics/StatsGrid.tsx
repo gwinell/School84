@@ -1,6 +1,5 @@
 import {
   BookOpenIcon,
-  DollarSignIcon,
   GraduationCapIcon,
   UsersIcon,
 } from "lucide-react";
@@ -10,12 +9,6 @@ import type { tAnalytics } from "@/app/data/admin/admin-get-analytics";
 import { StatCard } from "./StatCard";
 
 const numberFormatter = new Intl.NumberFormat("en-US");
-const currencyFormatter = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  maximumFractionDigits: 0,
-});
-
 interface StatsGridProps {
   data: tAnalytics["stats"];
   sparklines: tAnalytics["sparklines"];
@@ -43,26 +36,17 @@ export function StatsGrid({ data, sparklines }: StatsGridProps) {
     },
     {
       icon: GraduationCapIcon,
-      label: "Active enrollments",
+      label: "Assigned courses",
       value: numberFormatter.format(data.activeEnrollments),
-      subtitle: `${numberFormatter.format(data.pendingEnrollments)} pending · ${numberFormatter.format(data.newEnrollmentsThisPeriod)} new this month`,
+      subtitle: `${numberFormatter.format(data.newEnrollmentsThisPeriod)} new this month`,
       data: sparklines.enrollments,
       color: "chart-3" as const,
       gradientId: "sparkline-enrollments",
     },
-    {
-      icon: DollarSignIcon,
-      label: "Total revenue",
-      value: currencyFormatter.format(data.totalRevenueCents / 100),
-      subtitle: `${currencyFormatter.format(data.newRevenueCentsThisPeriod / 100)} this month`,
-      data: sparklines.revenue,
-      color: "chart-4" as const,
-      gradientId: "sparkline-revenue",
-    },
   ];
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {cards.map((card) => (
         <StatCard key={card.label} {...card} />
       ))}
