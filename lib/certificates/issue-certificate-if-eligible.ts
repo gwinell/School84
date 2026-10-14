@@ -45,7 +45,7 @@ export async function issueCertificateIfEligible({
       },
     });
 
-    if (!course) {
+    if (!course || course.status !== "PUBLISHED") {
       return { issued: false, reason: "not-complete" } as const;
     }
 

@@ -105,7 +105,7 @@ test('certificate rejects stale lesson completion when current cells remain unpa
   let issued = 0;
   const db = {
     certificate: { findUnique: async () => null, create: async () => { issued++; } },
-    course: { findUnique: async () => ({ id: 'course', title: 'Course', slug: 'course', level: 'BEGINNER', duration: 5, user: { name: 'Teacher' }, courseChapters: [{ lessons: [{ id: 'lesson', cells: [{ id: 'new-task' }] }] }] }) },
+    course: { findUnique: async () => ({ id: 'course', title: 'Course', slug: 'course', status: 'PUBLISHED', level: 'BEGINNER', duration: 5, user: { name: 'Teacher' }, courseChapters: [{ lessons: [{ id: 'lesson', cells: [{ id: 'new-task' }] }] }] }) },
     lessonProgress: { count: async () => 1 }, lessonCellProgress: { count: async () => 0 }, user: { findUnique: async () => ({ name: 'Student' }) },
     $transaction: async (fn) => fn(db),
   };
@@ -138,18 +138,46 @@ test('successful S3 discard removes pending record; other owners cannot delete',
   assert.equal(await s.module.discardUpload('orphan', 'student'), 'deleted'); assert.equal(s.recordsRemoved(), 1);
 });
 
-test('inconsistent runner ACCEPTED never passes a code cell', async () => {
-  let persisted; let passed = false;
+function submissions(runnerResponse, fetchGate) {
+  const records = []; let fetches = 0; let passed = false; let queue = Promise.resolve(); let locks = 0;
   const db = {
-    lessonCell: { findUnique: async () => ({ id: 'code', type: 'CODE_TASK', testCases: [{ input: '', output: '1' }], lintConfig: null, lessonId: 'lesson', lesson: { chapter: { course: { id: 'course', slug: 'course', status: 'PUBLISHED' } } } }) },
+    lessonCell: { findUnique: async () => ({ id: 'code', type: 'CODE_TASK', testCases: [{ input: '', output: '1' }], lintConfig: null, lessonId: 'lesson', lesson: { chapter: { course: { id: 'course', slug: 'course', status: 'PUBLISHED' } } } }), findMany: async () => [{ id: 'code' }] },
     enrollment: { findUnique: async () => ({ status: 'Active', accessMode: 'ALL_AT_ONCE' }) },
-    codeSubmission: { count: async () => 0, create: async ({ data }) => { persisted = data; } },
-    lessonCellProgress: { createMany: async () => {}, updateMany: async ({ data }) => { passed = data.status === 'PASSED'; return { count: 1 }; } },
-    studentDailyActivity: { upsert: async () => {} }, $transaction: async (fn) => fn(db),
+    codeSubmission: {
+      count: async ({ where }) => records.filter((record) => !where.status || record.status === where.status && record.errorText === where.errorText).length,
+      create: async ({ data }) => { const id = `submission-${records.length}`; records.push({ id, ...data }); return { id }; },
+      update: async ({ where, data }) => Object.assign(records.find((r) => r.id === where.id), data),
+    },
+    lessonCellProgress: { createMany: async () => {}, updateMany: async ({ data }) => { passed = data.status === 'PASSED'; return { count: 1 }; }, count: async () => 1 },
+    lessonProgress: { upsert: async () => {} }, studentDailyActivity: { upsert: async () => {} },
+    $executeRaw: async (query, userId) => { assert.match(query.join('?'), /pg_advisory_xact_lock/); assert.equal(userId, 'student'); locks++; },
+    $transaction(fn) { const result = queue.then(() => fn(db)); queue = result.catch(() => {}); return result; },
   };
-  const subject = load('app/dashboard/courses/[slug]/(lesson)/[lessonId]/code-submission-actions.ts', { '@/lib/prisma': db, '@/lib/env': { env: { PYTHON_RUNNER_URL: 'http://runner', PYTHON_RUNNER_TOKEN: 'test' } }, '@/lib/course-access': { canAccessAssignedLesson: async () => true } }, { fetch: async () => ({ ok: true, json: async () => ({ status: 'ACCEPTED', passedTests: 0, totalTests: 1, durationMs: 10 }) }) });
-  await subject.submitCodeTaskAction({ cellId: 'code', sourceCode: 'print(1)' });
-  assert.equal(persisted.status, 'SYSTEM_ERROR'); assert.equal(passed, false);
+  const subject = load('app/dashboard/courses/[slug]/(lesson)/[lessonId]/code-submission-actions.ts', { '@/lib/prisma': db, '@/lib/env': { env: { PYTHON_RUNNER_URL: 'http://runner', PYTHON_RUNNER_TOKEN: 'test' } }, '@/lib/course-access': { canAccessAssignedLesson: async () => true } }, {
+    fetch: async () => { fetches++; assert.ok(records.length > 0, 'admission must be persisted before network'); if (fetchGate) await fetchGate; return { ok: true, json: async () => runnerResponse }; },
+  });
+  return { subject, records, fetches: () => fetches, passed: () => passed, locks: () => locks };
+}
+test('inconsistent runner ACCEPTED never passes a code cell', async () => {
+  const s = submissions({ status: 'ACCEPTED', passedTests: 0, totalTests: 1, durationMs: 10 });
+  await s.subject.submitCodeTaskAction({ cellId: 'code', sourceCode: 'print(1)' });
+  assert.equal(s.records.length, 1); assert.equal(s.records[0].status, 'SYSTEM_ERROR'); assert.equal(s.passed(), false);
+});
+test('concurrent submissions reserve atomic admission before runner and allow only one in flight', async () => {
+  let release; const gate = new Promise((resolve) => { release = resolve; });
+  const s = submissions({ status: 'ACCEPTED', passedTests: 1, totalTests: 1, durationMs: 10 }, gate);
+  const results = Array.from({ length: 6 }, () => s.subject.submitCodeTaskAction({ cellId: 'code', sourceCode: 'print(1)' }));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(s.fetches(), 1); assert.equal(s.records.length, 1); assert.equal(s.locks(), 6);
+  release(); const final = await Promise.all(results);
+  assert.equal(final.filter((r) => r.status === 'error').length, 5);
+  assert.equal(s.records[0].status, 'ACCEPTED'); assert.equal(s.passed(), true);
+});
+test('rate limit counts reserved submissions and still stops the sixth completed attempt', async () => {
+  const s = submissions({ status: 'WRONG_ANSWER', passedTests: 0, totalTests: 1, durationMs: 10 });
+  for (let i = 0; i < 5; i++) assert.equal((await s.subject.submitCodeTaskAction({ cellId: 'code', sourceCode: 'print(2)' })).status, 'success');
+  assert.equal((await s.subject.submitCodeTaskAction({ cellId: 'code', sourceCode: 'print(2)' })).status, 'error');
+  assert.equal(s.fetches(), 5); assert.equal(s.records.length, 5);
 });
 
 function discussion({ published = true, unlocked = true, mode = 'SEQUENTIAL' } = {}) {
@@ -190,4 +218,36 @@ test('discussion remains available for unlocked and all-at-once lessons', async 
     assert.equal((await d.subject.getCommentsPageAction({ lessonId: 'lesson', page: 1, pageSize: 10, sort: 'oldest' })).status, 'success');
     assert.equal(d.writes(), 1); assert.equal(d.reads(), 1);
   }
+});
+
+
+test('CSV export neutralizes formulas in actor names and entity labels while preserving standard escaping', () => {
+  const { csvEscape } = load('lib/activity/csv.ts');
+  for (const payload of ['=1+1', '+SUM(1)', '-2+3', '@SUM(1)', '\t=1+1', '\r=1+1', '\n=1+1']) {
+    assert.match(csvEscape(payload).replace(/^"/, ''), /^'/);
+  }
+  assert.equal(csvEscape('School "84", lesson'), '"School ""84"", lesson"');
+  assert.equal(csvEscape('Ordinary title'), 'Ordinary title');
+});
+test('certificate issuance rejects unpublished curricula before accessing learner progress', async () => {
+  for (const status of ['DRAFT', 'ARCHIVED']) {
+    const db = { certificate: { findUnique: async () => null }, course: { findUnique: async () => ({ status }) }, $transaction: async (fn) => fn(db) };
+    const subject = load('lib/certificates/issue-certificate-if-eligible.ts', { '@/lib/prisma': db, '@/lib/generated/prisma/client': { Prisma: {} }, './generate-verification-code': { generateVerificationCode: () => 'code' } });
+    assert.equal((await subject.issueCertificateIfEligible({ userId: 'student', courseId: 'course' })).reason, 'not-complete');
+  }
+});
+
+test('auth signup config passes deny email protections to the installed Arcjet API', async () => {
+  const applied = [];
+  const guard = { withRule(rule) { applied.push(rule); return this; }, protect: async () => ({ isDenied: () => false }) };
+  const subject = load('app/api/auth/[...all]/route.ts', {
+    '@/lib/arcjet': guard,
+    '@/lib/auth': { auth: { handler: {}, api: { getSession: async () => null } } },
+    '@arcjet/ip': () => '127.0.0.1',
+    '@arcjet/next': { protectSignup: (options) => ({ kind: 'signup', options }), detectBot: (options) => ({ kind: 'bot', options }), slidingWindow: (options) => ({ kind: 'rate', options }) },
+    'better-auth/next-js': { toNextJsHandler: () => ({ GET: async () => null, POST: async () => 'handled' }) },
+  });
+  assert.equal(await subject.POST({ headers: {}, nextUrl: { pathname: '/api/auth/sign-up/email' }, clone: () => ({ json: async () => ({ email: 'demo@example.com' }) }) }), 'handled');
+  const email = applied.find((rule) => rule.kind === 'signup').options.email;
+  assert.equal(email.mode, 'LIVE'); assert.equal(Array.from(email.deny).join(','), 'DISPOSABLE,INVALID,NO_MX_RECORDS'); assert.equal(email.block, undefined);
 });

@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { headers } from "next/headers";
 
 import { auth } from "@/lib/auth";
+import { csvEscape } from "@/lib/activity/csv";
 import { ACTIVITY_PRESENTATION } from "@/lib/activity/activity-actions";
 
 import {
@@ -15,15 +16,6 @@ import {
 } from "@/app/admin/activity/_lib/filters";
 
 const MAX_EXPORT = 5000;
-
-function csvEscape(value: unknown): string {
-  if (value === null || value === undefined) return "";
-  const str = value instanceof Date ? value.toISOString() : String(value);
-  if (/[",\n\r]/.test(str)) {
-    return `"${str.replace(/"/g, '""')}"`;
-  }
-  return str;
-}
 
 function parseDateParam(value: string | null): Date | null {
   if (!value) return null;

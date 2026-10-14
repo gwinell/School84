@@ -85,10 +85,6 @@ export async function submitCodeTaskAction(input: unknown): Promise<tApiResponse
     return errorResponse("Сначала примите все задачи в предыдущих уроках", null);
   }
 
-  const recentSubmissions = await prisma.codeSubmission.count({
-    where: { userId: session.user.id, createdAt: { gte: new Date(Date.now() - 60_000) } },
-  });
-  if (recentSubmissions >= 5) return errorResponse("Подождите минуту перед следующей отправкой", null);
 
   const tests = Array.isArray(cell.testCases)
     ? cell.testCases.flatMap((item) => {
@@ -109,6 +105,28 @@ export async function submitCodeTaskAction(input: unknown): Promise<tApiResponse
     return errorResponse("Сейчас поддерживается линтер Ruff для Python", null);
   }
   const lintEnabled = configuredLinters === undefined || (Array.isArray(configuredLinters) && configuredLinters.includes("ruff"));
+
+  // Reserve admission before invoking Docker. The transaction-scoped advisory
+  // lock serializes admission across every app instance for this account.
+  const pendingMessage = "Проверка выполняется";
+  const reservation = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('code-submission'), hashtext(${session.user.id}))`;
+    const recent = { userId: session.user.id, createdAt: { gte: new Date(Date.now() - 60_000) } };
+    const [recentCount, inFlightCount] = await Promise.all([
+      tx.codeSubmission.count({ where: recent }),
+      tx.codeSubmission.count({ where: { ...recent, status: "SYSTEM_ERROR", errorText: pendingMessage } }),
+    ]);
+    if (recentCount >= 5 || inFlightCount > 0) return null;
+    return tx.codeSubmission.create({
+      data: {
+        userId: session.user.id, lessonCellId: cell.id,
+        sourceCode: parsed.data.sourceCode, status: "SYSTEM_ERROR",
+        totalTests: tests.length, errorText: pendingMessage,
+      },
+      select: { id: true },
+    });
+  });
+  if (!reservation) return errorResponse("Дождитесь проверки или подождите минуту перед следующей отправкой", null);
 
   let result: SubmissionResult;
   try {
@@ -153,11 +171,9 @@ export async function submitCodeTaskAction(input: unknown): Promise<tApiResponse
   const daily = new Date();
   daily.setUTCHours(0, 0, 0, 0);
   await prisma.$transaction(async (tx) => {
-    await tx.codeSubmission.create({
+    await tx.codeSubmission.update({
+      where: { id: reservation.id },
       data: {
-        userId: session.user.id,
-        lessonCellId: cell.id,
-        sourceCode: parsed.data.sourceCode,
         status: result.status,
         passedTests: result.passedTests,
         totalTests: result.totalTests,

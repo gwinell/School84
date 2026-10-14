@@ -15,6 +15,7 @@ IMAGE = os.environ.get("SANDBOX_IMAGE", "school84-python-sandbox:local")
 MAX_OUTPUT_BYTES = 16_000
 TEST_TIMEOUT_SECONDS = 2.5
 LINT_TIMEOUT_SECONDS = 2.0
+RUN_SLOTS = threading.BoundedSemaphore(2)
 
 
 class TestCase(BaseModel):
@@ -36,6 +37,8 @@ def run_exec(container, command: list[str], timeout: float) -> dict:
     output_size = {"stdout": 0, "stderr": 0}
     stream_done = threading.Event()
     stream_ready = threading.Event()
+    output_exceeded = threading.Event()
+    stream_errors = []
 
     def read_output():
         try:
@@ -43,22 +46,38 @@ def run_exec(container, command: list[str], timeout: float) -> dict:
             stream_ready.set()
             for stdout_chunk, stderr_chunk in stream:
                 if stdout_chunk:
+                    if len(stdout_chunk) > MAX_OUTPUT_BYTES - output_size["stdout"]:
+                        output_exceeded.set()
                     remaining = MAX_OUTPUT_BYTES - output_size["stdout"]
                     if remaining > 0:
                         stdout_parts.append(stdout_chunk[:remaining])
                         output_size["stdout"] += min(len(stdout_chunk), remaining)
                 if stderr_chunk:
+                    if len(stderr_chunk) > MAX_OUTPUT_BYTES - output_size["stderr"]:
+                        output_exceeded.set()
                     remaining = MAX_OUTPUT_BYTES - output_size["stderr"]
                     if remaining > 0:
                         stderr_parts.append(stderr_chunk[:remaining])
                         output_size["stderr"] += min(len(stderr_chunk), remaining)
+                if output_exceeded.is_set():
+                    try:
+                        container.kill()
+                    except docker.errors.APIError:
+                        pass
+                    break
+            if hasattr(stream, "close"):
+                stream.close()
+        except Exception as error:
+            stream_errors.append(error)
         finally:
             stream_ready.set()
             stream_done.set()
 
     output_thread = threading.Thread(target=read_output, daemon=True)
     output_thread.start()
-    stream_ready.wait(timeout=1)
+    # Never inspect an exec that the output thread has not started yet: Docker
+    # reports Running=False/ExitCode=None for an exec that is still pending.
+    stream_ready.wait(timeout=timeout)
     while time.monotonic() - started < timeout:
         execution = client.api.exec_inspect(exec_id)
         if not execution["Running"]:
@@ -72,7 +91,8 @@ def run_exec(container, command: list[str], timeout: float) -> dict:
     output_thread.join(timeout=1)
     return {
         "timedOut": False,
-        "exitCode": execution.get("ExitCode", 1),
+        "exitCode": 1 if output_exceeded.is_set() or stream_errors or not stream_done.is_set() else execution.get("ExitCode", 1),
+        "outputExceeded": output_exceeded.is_set(),
         "stdout": b"".join(stdout_parts).decode("utf-8", errors="replace"),
         "stderr": b"".join(stderr_parts).decode("utf-8", errors="replace"),
         "durationMs": int((time.monotonic() - started) * 1000),
@@ -132,6 +152,8 @@ def run_one(code: str, test_input: str) -> dict:
             "exec(compile(source,'<solution>','exec'),{'__name__':'__main__'})"
         )
         execution = run_exec(container, ["python", "-I", "-c", bootstrap], TEST_TIMEOUT_SECONDS)
+        if execution.get("outputExceeded"):
+            return {"status": "RUNTIME_ERROR", "stdout": "", "stderr": "Превышен допустимый объём вывода.", "durationMs": int((time.monotonic() - started) * 1000)}
         if execution["timedOut"]:
             return {"status": "TIME_LIMIT", "stdout": "", "stderr": "Превышено время выполнения.", "durationMs": int((time.monotonic() - started) * 1000)}
         exit_code = execution["exitCode"]
@@ -156,12 +178,7 @@ def health():
     return {"status": "ok"}
 
 
-@app.post("/run")
-def run(request: RunRequest, authorization: str | None = Header(default=None)):
-    provided = authorization.removeprefix("Bearer ") if authorization else ""
-    if not hmac.compare_digest(provided, TOKEN):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
+def execute_run(request: RunRequest):
     try:
         client.images.get(IMAGE)
     except docker.errors.ImageNotFound as error:
@@ -214,3 +231,16 @@ def run(request: RunRequest, authorization: str | None = Header(default=None)):
         "durationMs": total_duration,
         "checks": checks,
     }
+
+
+@app.post("/run")
+def run(request: RunRequest, authorization: str | None = Header(default=None)):
+    provided = authorization.removeprefix("Bearer ") if authorization else ""
+    if not hmac.compare_digest(provided, TOKEN):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if not RUN_SLOTS.acquire(blocking=False):
+        raise HTTPException(status_code=429, detail="Runner is busy. Try again later.")
+    try:
+        return execute_run(request)
+    finally:
+        RUN_SLOTS.release()
