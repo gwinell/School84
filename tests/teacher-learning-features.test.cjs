@@ -28,6 +28,8 @@ function load(file, mocks = {}, globals = {}) {
         successResponse: (message, data) => ({ status: 'success', message, data }),
       };
       if (name === '@/lib/resend') return { resend: { emails: { send: async () => ({}) } } };
+      if (name === '@/lib/arcjet') return { __esModule: true, default: { withRule() { return { protect: async () => ({ isDenied: () => false }) }; } }, fixedWindow: (config) => config };
+      if (name === '@arcjet/next') return { request: async () => ({}) };
       if (name === '@/app/data/teacher/require-teacher') return { requireTeacher: async () => ({ user: { id: 'teacher-1', role: 'teacher' } }) };
       if (name === '@/app/data/user/require-user') return { requireUser: async () => ({ user: { id: 'student-1', role: 'user' } }) };
       return require(name);
@@ -193,18 +195,30 @@ test('invitation acceptance rejects an unverified or mismatched account without 
   assert.equal(enrollments, 0);
 });
 
-function invitationAction({ emailMode = 'resend', mailResult = {}, mailThrows = false } = {}) {
+function invitationAction({ emailMode = 'resend', mailResult = {}, mailThrows = false, userRecord = null, deniedRateLimitCall = 0, arcjetEnabled = true } = {}) {
   const events = [];
   let invitationRecord;
+  let userLookups = 0;
+  let rateLimitCalls = 0;
   const action = load(teacherActions, {
     '@/app/data/teacher/require-course-teacher': { requireCourseTeacher: async () => ({
       session: { user: { id: 'teacher-1', role: 'teacher' } },
       course: { id: 'course-1', title: 'Course <One>' },
     }) },
-    '@/lib/env': { env: { BETTER_AUTH_URL: 'https://school.example.test', EMAIL_FROM: 'school@example.test', AUTH_EMAIL_MODE: emailMode } },
+    '@/lib/env': { env: { BETTER_AUTH_URL: 'https://school.example.test', EMAIL_FROM: 'school@example.test', AUTH_EMAIL_MODE: emailMode, ARCJET_ENABLED: arcjetEnabled ? 'true' : 'false' } },
     '@/lib/resend': { resend: { emails: { send: async (message) => { events.push({ type: 'mail', message }); if (mailThrows) throw Error('provider offline'); return mailResult; } } } },
+    '@/lib/arcjet': {
+      __esModule: true,
+      default: { withRule() { return { protect: async (_req, data) => {
+        rateLimitCalls++;
+        events.push({ type: 'limit', fingerprint: data.fingerprint });
+        return { isDenied: () => rateLimitCalls === deniedRateLimitCall };
+      } }; } },
+      fixedWindow: (config) => config,
+    },
+    '@arcjet/next': { request: async () => ({ requestId: 'mock' }) },
     '@/lib/prisma': {
-      user: { findFirst: async () => null },
+      user: { findFirst: async () => { userLookups++; return userRecord; } },
       $transaction: async (callback) => callback({
         courseInvitation: {
           deleteMany: async () => { events.push({ type: 'replace' }); },
@@ -213,7 +227,7 @@ function invitationAction({ emailMode = 'resend', mailResult = {}, mailThrows = 
       }),
     },
   }, { console: { info: (message) => events.push({ type: 'console', message }), error: (message) => events.push({ type: 'error', message }) } });
-  return { action: action.inviteStudentToCourse, events, invitationRecord: () => invitationRecord };
+  return { action: action.inviteStudentToCourse, events, invitationRecord: () => invitationRecord, userLookups: () => userLookups, rateLimitCalls: () => rateLimitCalls };
 }
 
 test('course invitation persists first, then sends a Resend email with an escaped title and usable link', async () => {
@@ -223,7 +237,7 @@ test('course invitation persists first, then sends a Resend email with an escape
   assert.equal(result.data.emailDelivery, 'sent');
   assert.match(result.data.inviteUrl, /^https:\/\/school\.example\.test\/invite\/[A-Za-z0-9_-]+$/);
   assert.ok(fixture.invitationRecord().tokenHash);
-  assert.deepEqual(fixture.events.map((event) => event.type), ['replace', 'create', 'mail']);
+  assert.deepEqual(fixture.events.map((event) => event.type), ['limit', 'limit', 'replace', 'create', 'mail']);
   const mail = plain(fixture.events.at(-1).message);
   assert.deepEqual(mail.to, ['new-student@example.test']);
   assert.equal(mail.from, 'school@example.test');
@@ -239,7 +253,7 @@ test('provider failure leaves the invitation and link available for manual deliv
   assert.equal(result.data.emailDelivery, 'failed');
   assert.match(result.data.inviteUrl, /\/invite\//);
   assert.ok(fixture.invitationRecord());
-  assert.deepEqual(fixture.events.map((event) => event.type), ['replace', 'create', 'mail', 'error']);
+  assert.deepEqual(fixture.events.map((event) => event.type), ['limit', 'limit', 'replace', 'create', 'mail', 'error']);
 });
 
 test('console email mode logs the invite locally and never calls the email provider', async () => {
@@ -250,6 +264,78 @@ test('console email mode logs the invite locally and never calls the email provi
   assert.match(fixture.events.find((event) => event.type === 'console').message, new RegExp(result.data.inviteUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.equal(fixture.events.some((event) => event.type === 'mail'), false);
   assert.ok(fixture.invitationRecord());
+});
+
+test('invitation response and side effects do not disclose whether the email is unknown, enrolled, a learner, or a teacher', async () => {
+  const targetStates = [
+    { name: 'unknown', userRecord: null },
+    { name: 'registered learner', userRecord: { id: 'learner-1', role: 'user', enrollment: [] } },
+    { name: 'already enrolled', userRecord: { id: 'learner-2', role: 'user', enrollment: [{ status: 'Active' }] } },
+    { name: 'teacher', userRecord: { id: 'teacher-2', role: 'teacher', enrollment: [] } },
+  ];
+  const publicResponses = [];
+  for (const state of targetStates) {
+    const fixture = invitationAction({ userRecord: state.userRecord });
+    const result = await fixture.action({ courseId: 'course-1', email: `${state.name.replaceAll(' ', '-')}@example.test`, accessMode: 'ALL_AT_ONCE' });
+    assert.equal(result.status, 'success', state.name);
+    assert.equal(result.message, 'Если адрес может принять приглашение, ссылка отправлена или подготовлена для передачи; она действует 7 дней');
+    assert.equal(result.data.emailDelivery, 'sent');
+    assert.equal(result.data.alreadyAssigned, false);
+    assert.match(result.data.inviteUrl, /^https:\/\/school\.example\.test\/invite\/[A-Za-z0-9_-]+$/);
+    assert.ok(fixture.invitationRecord(), state.name);
+    assert.equal(fixture.events.filter((event) => event.type === 'mail').length, 1, state.name);
+    assert.equal(fixture.userLookups(), 0, 'account and role state are never queried');
+    publicResponses.push({ status: result.status, message: result.message, emailDelivery: result.data.emailDelivery, alreadyAssigned: result.data.alreadyAssigned, hasLink: Boolean(result.data.inviteUrl), mailCount: fixture.events.filter((event) => event.type === 'mail').length, invitationCreated: Boolean(fixture.invitationRecord()) });
+  }
+  const expected = publicResponses[0];
+  for (const response of publicResponses.slice(1)) {
+    assert.deepEqual(response, expected);
+  }
+});
+
+test('invitation rate limits are keyed by teacher and normalized recipient and stop DB/provider side effects', async () => {
+  const fixture = invitationAction({ deniedRateLimitCall: 2 });
+  const result = await fixture.action({ courseId: 'course-1', email: '  STUDENT@Example.Test  ', accessMode: 'ALL_AT_ONCE' });
+  assert.equal(result.status, 'error');
+  assert.equal(result.message, 'Не удалось обработать приглашение. Повторите позже.');
+  assert.equal(fixture.rateLimitCalls(), 2);
+  assert.deepEqual(fixture.events.map((event) => event.type), ['limit', 'limit']);
+  assert.notEqual(fixture.events[0].fingerprint, fixture.events[1].fingerprint);
+  assert.equal(fixture.userLookups(), 0);
+  assert.equal(fixture.invitationRecord(), undefined);
+});
+
+test('teacher-wide invitation limit short-circuits before checking the recipient bucket', async () => {
+  const fixture = invitationAction({ deniedRateLimitCall: 1 });
+  const result = await fixture.action({ courseId: 'course-1', email: 'student@example.test', accessMode: 'ALL_AT_ONCE' });
+  assert.equal(result.status, 'error');
+  assert.equal(fixture.rateLimitCalls(), 1);
+  assert.deepEqual(fixture.events.map((event) => event.type), ['limit']);
+  assert.equal(fixture.userLookups(), 0);
+  assert.equal(fixture.invitationRecord(), undefined);
+});
+
+test('normalized email casing and whitespace share the same recipient limiter bucket', async () => {
+  const fixture = invitationAction();
+  await fixture.action({ courseId: 'course-1', email: '  STUDENT@Example.Test ', accessMode: 'ALL_AT_ONCE' });
+  await fixture.action({ courseId: 'course-1', email: 'student@example.test', accessMode: 'ALL_AT_ONCE' });
+  const fingerprints = fixture.events.filter((event) => event.type === 'limit').map((event) => event.fingerprint);
+  assert.equal(fingerprints.length, 4);
+  assert.equal(fingerprints[0], fingerprints[2], 'actor bucket is stable');
+  assert.equal(fingerprints[1], fingerprints[3], 'normalized recipient bucket is stable');
+  assert.equal(fixture.userLookups(), 0);
+});
+
+test('local/demo mode enforces invitation limits without Arcjet or real provider calls', async () => {
+  const fixture = invitationAction({ arcjetEnabled: false, emailMode: 'console' });
+  const input = { courseId: 'course-1', email: 'local@example.test', accessMode: 'ALL_AT_ONCE' };
+  const results = [];
+  for (let i = 0; i < 4; i++) results.push(await fixture.action(input));
+  assert.deepEqual(results.map((result) => result.status), ['success', 'success', 'success', 'error']);
+  assert.equal(fixture.rateLimitCalls(), 0, 'local mode does not call Arcjet');
+  assert.equal(fixture.events.filter((event) => event.type === 'mail').length, 0);
+  assert.equal(fixture.events.filter((event) => event.type === 'console').length, 3);
+  assert.equal(fixture.events.filter((event) => event.type === 'replace').length, 3);
 });
 
 test('learner quiz history query is scoped to the signed-in user and active course enrollment', async () => {

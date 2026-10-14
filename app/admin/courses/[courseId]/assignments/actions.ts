@@ -2,7 +2,9 @@
 
 import { randomBytes, createHash } from "node:crypto";
 import { revalidatePath } from "next/cache";
+import { request } from "@arcjet/next";
 import { z } from "zod";
+import arcjet, { fixedWindow } from "@/lib/arcjet";
 import { requireCourseTeacher } from "@/app/data/teacher/require-course-teacher";
 import { requireTeacher } from "@/app/data/teacher/require-teacher";
 import { requireUser } from "@/app/data/user/require-user";
@@ -13,6 +15,9 @@ import { errorResponse, successResponse } from "@/lib/responses";
 
 const enrollmentOptions = z.object({ courseId: z.string().min(1), accessMode: z.enum(["ALL_AT_ONCE", "SEQUENTIAL"]).default("ALL_AT_ONCE"), dueAt: z.string().datetime().optional().nullable() });
 const emailSchema = z.string().trim().email().max(254).transform((email) => email.toLowerCase());
+const invitationActorLimit = arcjet.withRule(fixedWindow({ mode: "LIVE", window: "1m", max: 10 }));
+const invitationRecipientLimit = arcjet.withRule(fixedWindow({ mode: "LIVE", window: "1h", max: 3 }));
+const localInvitationBuckets = new Map<string, { windowEndsAt: number; count: number }>();
 
 async function assignExistingStudent(courseId: string, userId: string, accessMode: "ALL_AT_ONCE" | "SEQUENTIAL", dueAt: Date | null | undefined) {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true } });
@@ -78,14 +83,12 @@ export async function inviteStudentToCourse(input: unknown) {
   const { session: teacherSession, course } = await requireCourseTeacher(parsed.data.courseId);
   const email = emailSchema.safeParse(parsed.data.email);
   if (!email.success) return errorResponse("Некорректный email", null);
-  const user = await prisma.user.findFirst({ where: { email: { equals: email.data, mode: "insensitive" } }, select: { id: true, role: true, enrollment: { where: { courseId: course.id }, select: { status: true } } } });
-  const dueAt = parsed.data.dueAt ? new Date(parsed.data.dueAt) : null;
-  if (user) {
-    if (user.role === "admin" || user.role === "teacher") return errorResponse("Этот email принадлежит преподавателю", null);
-    if (user.enrollment.some((e) => e.status === "Active")) return successResponse("Ученик уже записан", { inviteUrl: null, alreadyAssigned: true });
-    await assignExistingStudent(course.id, user.id, parsed.data.accessMode, dueAt);
-    return successResponse("Курс назначен существующему ученику", { inviteUrl: null, alreadyAssigned: false });
+
+  if (!(await canSendCourseInvitation({ teacherId: teacherSession.user.id, email: email.data }))) {
+    return errorResponse("Не удалось обработать приглашение. Повторите позже.", null);
   }
+
+  const dueAt = parsed.data.dueAt ? new Date(parsed.data.dueAt) : null;
   const token = randomBytes(32).toString("base64url");
   await prisma.$transaction(async (tx) => {
     await tx.courseInvitation.deleteMany({ where: { courseId: course.id, email: email.data, acceptedAt: null } });
@@ -98,7 +101,7 @@ export async function inviteStudentToCourse(input: unknown) {
   // the response UI and retry by creating a fresh invitation if needed.
   if (env.AUTH_EMAIL_MODE === "console") {
     console.info(`[School 84 local invitation] ${email.data}: ${inviteUrl}`);
-    return successResponse("Приглашение создано на 7 дней; ссылка выведена в локальную консоль, письмо не отправлялось", {
+    return successResponse("Если адрес может принять приглашение, ссылка отправлена или подготовлена для передачи; она действует 7 дней", {
       inviteUrl,
       alreadyAssigned: false,
       emailDelivery: "console" as const,
@@ -114,7 +117,7 @@ export async function inviteStudentToCourse(input: unknown) {
       html: `<p>Вас пригласили на курс «${escapeHtml(course.title)}».</p><p><a href="${escapeHtml(inviteUrl)}">Принять приглашение</a></p><p>Ссылка действует 7 дней и может быть использована один раз.</p>`,
     });
     if (result.error) throw result.error;
-    return successResponse("Приглашение создано и отправлено на email; ссылка действует 7 дней", {
+    return successResponse("Если адрес может принять приглашение, ссылка отправлена или подготовлена для передачи; она действует 7 дней", {
       inviteUrl,
       alreadyAssigned: false,
       emailDelivery: "sent" as const,
@@ -127,6 +130,54 @@ export async function inviteStudentToCourse(input: unknown) {
       emailDelivery: "failed" as const,
     });
   }
+}
+
+function rateLimitFingerprint(value: string) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+async function canSendCourseInvitation({ teacherId, email }: { teacherId: string; email: string }) {
+  const actorFingerprint = rateLimitFingerprint(`course-invite:actor:${teacherId}`);
+  const recipientFingerprint = rateLimitFingerprint(`course-invite:recipient:${teacherId}:${email}`);
+
+  // The local/demo profile intentionally disables Arcjet credentials. Enforce
+  // the same ceilings in this single-process mode instead of silently allowing
+  // unbounded invite emails. Map size is capped so unique addresses cannot grow
+  // memory indefinitely; at capacity, new buckets are rejected until expiry.
+  if (env.ARCJET_ENABLED !== "true") {
+    return takeLocalInvitationSlot(actorFingerprint, 10, 60_000) &&
+      takeLocalInvitationSlot(recipientFingerprint, 3, 60 * 60_000);
+  }
+
+  try {
+    const req = await request();
+    const actorDecision = await invitationActorLimit.protect(req, { fingerprint: actorFingerprint });
+    if (actorDecision.isDenied()) return false;
+    const recipientDecision = await invitationRecipientLimit.protect(req, { fingerprint: recipientFingerprint });
+    return !recipientDecision.isDenied();
+  } catch {
+    // Fail closed when the external limiter cannot make a decision.
+    return false;
+  }
+}
+
+function takeLocalInvitationSlot(fingerprint: string, max: number, windowMs: number) {
+  const now = Date.now();
+  for (const [key, bucket] of localInvitationBuckets) {
+    if (bucket.windowEndsAt <= now) localInvitationBuckets.delete(key);
+  }
+
+  const windowStart = Math.floor(now / windowMs) * windowMs;
+  const key = `${fingerprint}:${windowMs}:${windowStart}`;
+  const bucket = localInvitationBuckets.get(key);
+  if (!bucket) {
+    if (localInvitationBuckets.size >= 20_000) return false;
+    localInvitationBuckets.set(key, { windowEndsAt: windowStart + windowMs, count: 1 });
+    return true;
+  }
+  if (bucket.count >= max) return false;
+  bucket.count++;
+  return true;
 }
 
 function escapeHtml(value: string) {
