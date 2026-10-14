@@ -151,3 +151,43 @@ test('inconsistent runner ACCEPTED never passes a code cell', async () => {
   await subject.submitCodeTaskAction({ cellId: 'code', sourceCode: 'print(1)' });
   assert.equal(persisted.status, 'SYSTEM_ERROR'); assert.equal(passed, false);
 });
+
+function discussion({ published = true, unlocked = true, mode = 'SEQUENTIAL' } = {}) {
+  let writes = 0; let reads = 0;
+  const db = {
+    lesson: {
+      findUnique: async () => ({ chapter: { course: { id: 'course', slug: 'course' } } }),
+      findFirst: async () => published ? { id: 'lesson' } : null,
+    },
+    enrollment: { findUnique: async () => ({ status: 'Active', accessMode: mode }) },
+    lessonComment: {
+      create: async () => { writes++; return { id: 'comment', content: 'Hello', createdAt: new Date() }; },
+      findUnique: async () => ({ id: 'comment', parentId: null, lessonId: 'lesson', lesson: { chapter: { course: { id: 'course', slug: 'course' } } } }),
+    },
+  };
+  const subject = load('app/dashboard/courses/[slug]/(lesson)/[lessonId]/_lib/comment-actions.ts', {
+    '@/lib/prisma': db, '@/lib/course-access': { canAccessAssignedLesson: async () => unlocked },
+    '@/app/data/user/get-lesson-comments': { getLessonComments: async () => { reads++; return { items: [] }; } },
+    '@/app/data/user/get-lesson-replies': { getLessonReplies: async () => { reads++; return { items: [] }; } },
+  });
+  return { subject, writes: () => writes, reads: () => reads };
+}
+test('discussion actions reject locked and unpublished lessons before reading or writing', async () => {
+  for (const options of [{ unlocked: false }, { published: false }]) {
+    const d = discussion(options);
+    assert.equal((await d.subject.createCommentAction({ lessonId: 'lesson', content: 'Hello' })).status, 'error');
+    assert.equal((await d.subject.getCommentsPageAction({ lessonId: 'lesson', page: 1, pageSize: 10, sort: 'oldest' })).status, 'error');
+    assert.equal((await d.subject.createReplyAction({ commentId: 'comment', content: 'Hello' })).status, 'error');
+    assert.equal((await d.subject.toggleCommentLikeAction({ commentId: 'comment' })).status, 'error');
+    assert.equal((await d.subject.getRepliesPageAction({ commentId: 'comment', page: 1, pageSize: 10 })).status, 'error');
+    assert.equal(d.writes(), 0); assert.equal(d.reads(), 0);
+  }
+});
+test('discussion remains available for unlocked and all-at-once lessons', async () => {
+  for (const options of [{ unlocked: true }, { unlocked: false, mode: 'ALL_AT_ONCE' }]) {
+    const d = discussion(options);
+    assert.equal((await d.subject.createCommentAction({ lessonId: 'lesson', content: 'Hello' })).status, 'success');
+    assert.equal((await d.subject.getCommentsPageAction({ lessonId: 'lesson', page: 1, pageSize: 10, sort: 'oldest' })).status, 'success');
+    assert.equal(d.writes(), 1); assert.equal(d.reads(), 1);
+  }
+});
