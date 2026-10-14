@@ -287,7 +287,7 @@ export async function editCommentAction({
           select: {
             chapter: {
               select: {
-                course: { select: { slug: true } },
+                course: { select: { id: true, slug: true } },
               },
             },
           },
@@ -301,6 +301,10 @@ export async function editCommentAction({
 
     if (comment.userId !== session.user.id) {
       return errorResponse("You can only edit your own comments", null);
+    }
+
+    if (!(await hasAccess(session.user.id, session.user.role, comment.lesson.chapter.course.id, comment.lessonId))) {
+      return errorResponse("You are not allowed to edit comments in this course", null);
     }
 
     await prisma.lessonComment.update({
@@ -338,7 +342,7 @@ export async function deleteCommentAction({
           select: {
             chapter: {
               select: {
-                course: { select: { slug: true } },
+                course: { select: { id: true, slug: true } },
               },
             },
           },
@@ -352,6 +356,10 @@ export async function deleteCommentAction({
 
     if (comment.userId !== session.user.id && session.user.role !== "admin") {
       return errorResponse("You are not allowed to delete this comment", null);
+    }
+
+    if (!(await hasAccess(session.user.id, session.user.role, comment.lesson.chapter.course.id, comment.lessonId))) {
+      return errorResponse("You are not allowed to delete comments in this course", null);
     }
 
     await prisma.lessonComment.delete({
