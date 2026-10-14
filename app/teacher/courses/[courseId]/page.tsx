@@ -8,7 +8,7 @@ import { assignTeacherToCourse, bulkAssignStudents, cancelCourseInvitation, canc
 import { CourseGradebook } from "../../_components/CourseGradebook";
 import { CourseInstructorsManager } from "../../_components/CourseInstructorsManager";
 import { CourseInvitationsList } from "../../_components/CourseInvitationsList";
-import { CourseRosterManager } from "../../_components/CourseRosterManager";
+import { CourseRosterManager, type EnrollmentOptions, type RosterActionResult } from "../../_components/CourseRosterManager";
 import { buttonVariants } from "@/components/ui/button";
 
 export default async function TeacherCoursePage({ params }: { params: Promise<{ courseId: string }> }) {
@@ -27,6 +27,16 @@ export default async function TeacherCoursePage({ params }: { params: Promise<{ 
   }));
   const now = new Date();
   const invitationRows = invitations.map((invitation) => ({ ...invitation, isExpired: invitation.expiresAt <= now }));
+
+  async function onInvite(input: EnrollmentOptions & { email: string }): Promise<RosterActionResult<{ inviteUrl: string | null; alreadyAssigned: boolean }>> {
+    const result = await inviteStudentToCourse(input);
+    return { ...result, data: result.data ?? undefined };
+  }
+
+  async function onBulkAssign(input: EnrollmentOptions & { emails: string[] }): Promise<RosterActionResult<{ created: number; alreadyAssigned: number; invalid: string[] }>> {
+    const result = await bulkAssignStudents(input);
+    return { ...result, data: result.data ?? undefined };
+  }
 
   return <div className="space-y-8">
     <Link href="/teacher" className={buttonVariants({ variant: "ghost", size: "sm" })}><ArrowLeftIcon />Все курсы</Link>
@@ -47,8 +57,8 @@ export default async function TeacherCoursePage({ params }: { params: Promise<{ 
     <CourseRosterManager
       courseId={courseId}
       enrollments={enrollments}
-      onInvite={inviteStudentToCourse}
-      onBulkAssign={bulkAssignStudents}
+      onInvite={onInvite}
+      onBulkAssign={onBulkAssign}
       onCancel={cancelEnrollment}
       onSetDueDate={setEnrollmentDueDate}
     />

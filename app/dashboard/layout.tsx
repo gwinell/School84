@@ -23,7 +23,7 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
       }
     >
       {/* Sidebar */}
-      <DashboardSidebar variant="inset" role={session.user.role} />
+      <DashboardSidebar variant="inset" role={session.user.role ?? undefined} />
 
       <SidebarInset className="min-h-0 overflow-hidden">
         {/* Header */}

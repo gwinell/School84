@@ -265,6 +265,7 @@ export function LessonCellEditor({
               </div>
               <CellContentEditor
                 key={`${active.id}:${active.type}`}
+                courseId={courseId}
                 cell={active}
                 isPending={isPending}
                 onSave={(values) => startTransition(async () => {
@@ -314,10 +315,12 @@ function getCellValues(cell: Cell) {
 }
 
 function CellContentEditor({
+  courseId,
   cell,
   isPending,
   onSave,
 }: {
+  courseId: string;
   cell: Cell;
   isPending: boolean;
   onSave: (values: ReturnType<typeof getCellValues>) => void;
