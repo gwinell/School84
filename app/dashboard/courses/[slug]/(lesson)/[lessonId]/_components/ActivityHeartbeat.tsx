@@ -17,7 +17,9 @@ export function ActivityHeartbeat({
     let lastSent = lastInteraction;
 
     const interact = () => {
-      lastInteraction = Date.now();
+      const now = Date.now();
+      if (now - lastInteraction > IDLE_LIMIT_MS) lastSent = now;
+      lastInteraction = now;
     };
 
     const visibility = () => {
@@ -31,13 +33,13 @@ export function ActivityHeartbeat({
 
     const sendHeartbeat = () => {
       const now = Date.now();
-      if (document.visibilityState !== "visible" || now - lastInteraction > IDLE_LIMIT_MS) {
+      if (document.visibilityState !== "visible") {
         lastSent = now;
         return;
       }
 
-      const activeStart = Math.max(lastSent, lastInteraction);
-      const seconds = Math.min(20, Math.floor((now - activeStart) / 1_000));
+      const activeEnd = Math.min(now, lastInteraction + IDLE_LIMIT_MS);
+      const seconds = Math.max(0, Math.min(20, Math.floor((activeEnd - lastSent) / 1_000)));
       lastSent = now;
       if (seconds <= 0) return;
 

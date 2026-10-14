@@ -28,7 +28,7 @@ export function PassCellButton({ cellId, passed }: { cellId: string; passed: boo
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card p-4">
       <p className="text-sm text-muted-foreground">
-        {passed ? "Прогресс сохранён. Можно вернуться к этой ячейке в любой момент." : "Завершите эту ячейку, чтобы открыть следующую."}
+        {passed ? "Прогресс сохранён. Можно вернуться к этой ячейке в любой момент." : "Отметьте эту ячейку, чтобы сохранить прогресс урока."}
       </p>
       <Button onClick={pass} disabled={passed || isPending} variant={passed ? "secondary" : "default"}>
         <CheckCircle2Icon />

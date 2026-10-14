@@ -24,7 +24,7 @@ export default async function LessonEditorPage({
 
   return (
     <LessonCellEditor
-      key={lesson.cells.map((cell) => cell.id).join(":")}
+      key={`${lesson.id}:${selectedCell?.id ?? ""}:${lesson.cells.map((cell) => cell.id).join(":")}`}
       courseId={courseId}
       chapterId={chapterId}
       lesson={lesson}

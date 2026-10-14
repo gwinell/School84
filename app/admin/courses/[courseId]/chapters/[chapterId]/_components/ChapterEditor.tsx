@@ -35,6 +35,7 @@ export function ChapterEditor({ chapter: initial }: { chapter: tAdminGetChapter 
         }),
       );
       if (error || data?.status === "error") {
+        setChapter(chapter);
         toast.error(data?.status === "error" ? data.message : "Не удалось переместить урок");
       } else {
         toast.success("Порядок уроков сохранён");
@@ -50,6 +51,7 @@ export function ChapterEditor({ chapter: initial }: { chapter: tAdminGetChapter 
       if (error || data?.status === "error") {
         toast.error(data?.status === "error" ? data.message : "Не удалось сохранить главу");
       } else {
+        setChapter((previous) => ({ ...previous, title: title.trim() }));
         toast.success("Глава сохранена");
       }
     });
@@ -58,7 +60,7 @@ export function ChapterEditor({ chapter: initial }: { chapter: tAdminGetChapter 
   return (
     <div className="mx-auto max-w-4xl space-y-8">
       <section className="flex flex-wrap items-end gap-3 rounded-xl border bg-card p-5">
-        <label className="min-w-64 flex-1 space-y-2">
+        <label className="min-w-0 basis-64 flex-1 space-y-2">
           <span className="text-sm font-medium">Название главы</span>
           <Input value={title} onChange={(event) => setTitle(event.target.value)} />
         </label>

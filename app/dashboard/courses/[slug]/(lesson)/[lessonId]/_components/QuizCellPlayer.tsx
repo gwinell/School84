@@ -21,10 +21,10 @@ export function QuizCellPlayer({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
-  function markPassed() {
+  function markPassed(quizAnswers: Record<string, string[]>) {
     if (passed || isPending) return;
     startTransition(async () => {
-      const { data, error } = await tryCatch(passLessonCellAction({ cellId }));
+      const { data, error } = await tryCatch(passLessonCellAction({ cellId, quizAnswers }));
       if (error || data?.status === "error") {
         toast.error(data?.status === "error" ? data.message : "Не удалось сохранить прогресс");
         return;

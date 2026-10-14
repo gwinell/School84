@@ -82,7 +82,7 @@ export default async function LessonPlayerPage({ params, searchParams }: PagePar
           <LessonVideo videoUrl={currentLesson.videoUrl} title={currentLesson.title} />
         ) : null}
 
-        <LessonCellContent cell={active} />
+        <LessonCellContent key={active.id} cell={active} />
         {active.type === "TEXT" || (active.type === "QUIZ" && !active.quiz?.questions.length) ? (
           <PassCellButton cellId={active.id} passed={active.status === "PASSED"} />
         ) : null}

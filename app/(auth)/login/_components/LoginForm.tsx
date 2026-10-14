@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { authClient } from "@/lib/auth-client";
 import { GithubIcon, LoaderIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useState, useTransition, type FormEvent } from "react";
 import { toast } from "sonner";
 
 interface LoginFormProps {
@@ -48,7 +48,8 @@ export function LoginForm({ redirectTo = "/", demoLoginEnabled = false }: LoginF
     });
   }
 
-  function signInWithEmail() {
+  function signInWithEmail(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     startEmailTransition(async () => {
       await authClient.emailOtp.sendVerificationOtp({
         email,
@@ -161,12 +162,14 @@ export function LoginForm({ redirectTo = "/", demoLoginEnabled = false }: LoginF
           </span>
         </div>
 
-        <div className="space-y-4">
+        <form className="space-y-4" onSubmit={signInWithEmail}>
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
             <Input
               id="email"
               type="email"
+              name="email"
+              autoComplete="email"
               placeholder="you@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -176,7 +179,7 @@ export function LoginForm({ redirectTo = "/", demoLoginEnabled = false }: LoginF
 
           <Button
             className="w-full"
-            onClick={signInWithEmail}
+            type="submit"
             disabled={emailPending || !email}
           >
             {emailPending ? (
@@ -188,7 +191,7 @@ export function LoginForm({ redirectTo = "/", demoLoginEnabled = false }: LoginF
               <>Send OTP</>
             )}
           </Button>
-        </div>
+        </form>
       </CardContent>
     </Card>
   );

@@ -278,7 +278,7 @@ export function LessonCellEditor({
                 })}
               />
               {active.type === "QUIZ" ? (
-                <QuizEditor cellId={active.id} initialQuiz={active.quiz} />
+                <QuizEditor key={active.id} cellId={active.id} initialQuiz={active.quiz} />
               ) : null}
             </section>
           ) : (
@@ -381,13 +381,11 @@ function CellContentEditor({
         </div>
       ) : null}
 
-      {cell.type !== "QUIZ" ? (
-        <div className="flex justify-end border-t pt-4">
-          <Button disabled={isPending} onClick={save}>
-            <CheckIcon /> {isPending ? "Сохраняем…" : "Сохранить ячейку"}
-          </Button>
-        </div>
-      ) : null}
+      <div className="flex justify-end border-t pt-4">
+        <Button disabled={isPending} onClick={save}>
+          <CheckIcon /> {isPending ? "Сохраняем…" : "Сохранить ячейку"}
+        </Button>
+      </div>
     </div>
   );
 }

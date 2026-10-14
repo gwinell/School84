@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { tCourseForLearningCell } from "@/app/data/user/get-course-for-learning";
 import { submitCodeTaskAction } from "../code-submission-actions";
 import { ActivityHeartbeat } from "./ActivityHeartbeat";
+import { tryCatch } from "@/hooks/try-catch";
 
 type Submission = NonNullable<tCourseForLearningCell["latestSubmission"]>;
 
@@ -22,7 +23,11 @@ export function CodeTaskWorkspace({ cell }: { cell: tCourseForLearningCell }) {
   function submit() {
     setMessage(null);
     startTransition(async () => {
-      const result = await submitCodeTaskAction({ cellId: cell.id, sourceCode });
+      const { data: result, error } = await tryCatch(submitCodeTaskAction({ cellId: cell.id, sourceCode }));
+      if (error || !result) {
+        setMessage("Не удалось отправить решение. Попробуйте снова.");
+        return;
+      }
       if (result.status === "error" || !result.data) {
         setMessage(result.message);
         return;
@@ -70,6 +75,7 @@ export function CodeTaskWorkspace({ cell }: { cell: tCourseForLearningCell }) {
             onChange={(event) => setSourceCode(event.target.value)}
             className="min-h-64 font-mono text-sm"
             spellCheck={false}
+            maxLength={30_000}
             placeholder="# Напишите решение"
           />
         </label>

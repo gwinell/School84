@@ -19,7 +19,7 @@ export default async function ChapterPage({
         title={chapter.course.title}
       />
       <ChapterEditor
-        key={chapter.lessons.map((lesson) => lesson.id).join(":")}
+        key={`${chapter.id}:${chapter.lessons.map((lesson) => lesson.id).join(":")}`}
         chapter={chapter}
       />
     </div>
