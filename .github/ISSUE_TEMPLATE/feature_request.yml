@@ -1,0 +1,30 @@
+name: Feature request
+description: Suggest an improvement for schools, teachers, or learners
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: Search existing issues first. Describe the user problem and outcome rather than a preferred implementation.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem should this solve?
+      description: Who is affected and what are they unable to do today?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe how the workflow should improve for the school role involved.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional context about workarounds or other approaches.
+    validations:
+      required: false

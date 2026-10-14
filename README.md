@@ -1,156 +1,112 @@
-# School 84
+<p align="center">
+  <img src="public/logo.svg" width="88" alt="SchoolSphere logo">
+</p>
 
-School 84 is being adapted from KnowSphere into a focused course-learning platform. This phase keeps the existing Next.js, TypeScript, Prisma, PostgreSQL, and shadcn/ui foundations while disabling the public course store and commercial features.
+<h1 align="center">SchoolSphere</h1>
 
-## Current MVP foundation
+<p align="center">A self-hosted, multi-school learning platform for independent schools, local learning groups, and course creators.</p>
 
-- Email OTP and GitHub sign-in, with learner and administrator roles.
-- Role-protected learner and administrator areas.
-- Course, chapter, lesson, quiz, and category management for administrators.
-- Existing learner progress tracking for lessons.
-- Course access is not self-service. Public purchases are disabled; administrators assign courses and choose whether material opens all at once or sequentially.
-- Course lessons support ordered text, Python task, and quiz cells. Python submissions and their results are stored separately from lesson completion.
-- The learner dashboard shows accepted tasks, submitted solutions, active days, and reading/solving time for the previous 365 days.
-- The lesson player no longer shows discussions. Reviews, wishlists, certificates, and project pages are hidden.
-- Payments and Stripe webhooks are disabled.
+<p align="center">
+  <a href="https://github.com/gwinell/School84/actions/workflows/ci.yml?query=branch%3Aaudit%2Fintegration"><img alt="CI" src="https://github.com/gwinell/School84/actions/workflows/ci.yml/badge.svg?branch=audit/integration"></a>
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/github/license/gwinell/School84"></a>
+  <img alt="Node.js 22" src="https://img.shields.io/badge/Node.js-22-339933?logo=node.js&logoColor=white">
+  <img alt="pnpm 11.25" src="https://img.shields.io/badge/pnpm-11.25-F69220?logo=pnpm&logoColor=white">
+</p>
 
-The public landing route sends signed-out users to sign-in and signed-in users to the appropriate dashboard. The existing visual system remains in place while School 84 course workflows are added.
+SchoolSphere is the School84 fork of [KnowSphere](https://github.com/billalben/KnowSphere), adapted for multiple independent schools. Each school manages its own staff, learners, courses, and enrollments. The project is self-hosted: it does not provide a hosted service.
+
+> **Project status:** actively developed. Before using real learner data, configure production authentication, email, storage, TLS, backups, and a trusted Python runner. See [deployment and upgrade notes](docs/LOCAL_DEVELOPMENT.md) and the [tenancy upgrade guide](docs/TENANCY_UPGRADE.md).
+
+## What you can do
+
+- **School owners and administrators** create a school, invite staff and learners, manage courses, assign students, and review progress.
+- **Teachers** author lessons and assessments, manage assigned course rosters, set due dates, and review submissions with feedback.
+- **Learners** follow assigned courses, complete quizzes and Python exercises, see feedback and progress, and resume where they left off.
+- **Independent schools** share one installation while keeping course catalogs, membership, and learning access scoped to each school. The same course slug can exist in different schools.
+
+| Role | Access |
+| --- | --- |
+| `OWNER` | Manages school members, roles, invitations, and courses. |
+| `ADMIN` | Manages school members, invitations, and courses; owner-only actions stay with the owner. |
+| `TEACHER` | Authors and manages courses assigned to them in that school. |
+| `STUDENT` | Studies courses assigned to them and sees their own progress and feedback. |
+| Platform administrator | Performs installation-wide administration; this is separate from school membership. |
+
+Invitations use verified accounts and one-time links. A person's access in one school does not grant access to another school's courses or learners.
+
+## Quick start
+
+You need Git and Docker with Docker Compose. These steps initialize a **new, empty local database** and seed demo accounts; they are not an upgrade path for a database that already contains school data.
+
+```bash
+git clone https://github.com/gwinell/School84.git
+cd School84
+cp .env.example .env
+
+docker compose --profile build-image build python-sandbox-image
+docker compose up -d db
+docker compose --profile init-schema run --build --rm schema-init
+docker compose up --build -d app python-runner
+docker compose --profile local-admin run --rm local-admin
+```
+
+Open [http://localhost:3001](http://localhost:3001). In the local Docker profile, use **Войти как преподаватель** or **Войти как ученик** for the seeded demo accounts. The demo OTP is `840084`; this shortcut is for local evaluation only. The learner account includes a sample Python course and progress.
+
+The app and runner are intended for a trusted local host. The runner uses the Docker socket to start restricted containers; keep services bound to loopback and do not expose this demo configuration to the public internet. To stop the stack without deleting its database:
+
+```bash
+docker compose down
+```
+
+For manual Node.js setup, environment configuration, demo curriculum import, backup/restore, and safe application updates, see [Local Development and Operations](docs/LOCAL_DEVELOPMENT.md).
 
 ## Technology
 
-- Next.js 16 App Router, React 19, TypeScript
-- Tailwind CSS 4 and shadcn/ui
-- PostgreSQL and Prisma 7
-- better-auth for authentication and roles
-- Arcjet for request protection
-- Tigris-compatible S3 storage for course media
+- Next.js App Router, React, and TypeScript
+- Tailwind CSS and Base UI/shadcn components
+- PostgreSQL and Prisma
+- better-auth, email OTP, and GitHub OAuth
+- S3-compatible course media storage
+- Isolated Python execution through a dedicated runner service
 
-## Local setup with Docker
+## Development and tests
 
-The recommended local setup runs the app, PostgreSQL, and the isolated Python runner in Docker. The app starts without changing the database schema. The app is available at [http://localhost:3001](http://localhost:3001); the existing port 3000 is left untouched.
-
-```bash
-docker-compose --profile build-image build python-sandbox-image
-docker-compose up -d db
-# Fresh installations only: explicitly initialize the schema after reviewing it.
-docker-compose --profile init-schema run --build --rm schema-init
-docker-compose up --build -d app python-runner
-docker-compose --profile local-admin run --rm local-admin
-```
-
-This sequence is for a **new, empty local database only**. `schema-init` runs Prisma `db push`; never run it against an existing school database. Existing installations should follow [the tenant database upgrade runbook](./docs/TENANCY_UPGRADE.md), which performs the one-time legacy data backfill. The app and runner should be published only on a trusted machine: the runner has access to the Docker socket, and the default Compose values are demo credentials rather than production secrets. Keep the database port and app bound to loopback unless a separately reviewed production deployment adds TLS, a firewall, real authentication providers, email delivery, and secret management.
-
-On the local Docker login page, use **Войти как преподаватель** or **Войти как ученик** for one-click demo access. The demo accounts are `admin@school84.local` and `student@school84.local`; the learner has the Python course with sample progress and activity. This shortcut is enabled only in the local Docker profile. To disable it, set `DEMO_LOGIN_ENABLED=false`. Regular email OTP login remains available; codes are printed in app logs:
+Requirements for the application toolchain: Node.js 22 and pnpm 11.25. Copy `.env.example` to `.env`, set the required local values, then install dependencies and generate Prisma Client:
 
 ```bash
-docker-compose logs -f app
-```
-
-The expanded Python course is generated from the local notebook collection in `../school84-mvp/content/source/python`. To import or refresh it after running the local-admin profile:
-
-```bash
-python3 scripts/seed_python_course.py > /tmp/school84-python-course.sql
-docker-compose exec -T db psql -U school84 -d school84 -v ON_ERROR_STOP=1 < /tmp/school84-python-course.sql
-```
-
-The course contains 9 chapters, 16 lessons, two reading cells and two autograded code tasks per notebook lesson, plus 10 quizzes. The demo enrollment opens the entire course so its content can be reviewed immediately.
-
-The local profile bypasses Arcjet and sends no email. To use real GitHub OAuth, Resend, or Arcjet, set their values and enable/configure them in `.env`. Course image uploads use the existing S3-compatible storage integration; point the `AWS_*` settings to a reachable bucket to enable uploads. The Python runner uses the local Docker socket to launch isolated sandboxes; keep this stack on the trusted local machine.
-
-Stop the app while preserving the database:
-
-```bash
-docker-compose down
-```
-
-### Back up, update, and roll back a local school
-
-Backups contain student and course data. Store them outside source control, restrict file permissions, and copy them to encrypted storage. Never commit a backup or `.env` file.
-
-```bash
-mkdir -p backups
-chmod 700 backups
-backup="backups/school84-$(date -u +%Y%m%dT%H%M%SZ).dump"
-docker-compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$backup"
-chmod 600 "$backup"
-docker-compose exec -T db pg_restore --list < "$backup" >/dev/null
-```
-
-For an application-only update, first pass the CI, authorization/security tests, and local candidate smoke checks. Take and verify the backup above. Save the currently running image ID under a rollback tag, then build and start the reviewed app image. These commands intentionally do not run schema sync, seed data, or delete the database volume:
-
-```bash
-old_image="$(docker inspect --format '{{.Image}}' school84-mvp-app-1)"
-docker image tag "$old_image" school84-mvp-app:rollback
-APP_IMAGE_TAG=release docker-compose build app
-APP_IMAGE_TAG=release docker-compose up --no-build -d app
-docker-compose ps
-node scripts/verify-local-deployment.cjs school84-mvp-app-1
-```
-
-If health or smoke checks fail, return to the retained app image, then inspect logs before retrying:
-
-```bash
-APP_IMAGE_TAG=rollback docker-compose up --no-build -d app
-docker-compose logs --tail=200 app
-```
-
-Do not overwrite the rollback tag until the release has been accepted and a new backup has been verified. Test a backup by restoring it into an empty temporary database first:
-
-```bash
-docker-compose exec -T db sh -c 'createdb -U "$POSTGRES_USER" school84_restore_check'
-docker-compose exec -T db sh -c 'pg_restore -U "$POSTGRES_USER" -d school84_restore_check --exit-on-error' < "$backup"
-# After checking the restored data, remove only this temporary database.
-docker-compose exec -T db sh -c 'dropdb -U "$POSTGRES_USER" school84_restore_check'
-```
-
-To replace the active local database, take and verify another backup of its current state first, stop the app, and type the exact confirmation shown below. Then restore the selected archive and start the app again:
-
-```bash
-docker-compose exec -T db sh -c 'pg_restore --list' < "$backup" >/dev/null
-printf 'This replaces the active database. Type RESTORE school84 to continue: '
-read -r confirmation
-[ "$confirmation" = 'RESTORE school84' ] || { echo 'Restore cancelled'; exit 1; }
-docker-compose stop app
-docker-compose exec -T db sh -c 'dropdb -U "$POSTGRES_USER" --if-exists "$POSTGRES_DB"'
-docker-compose exec -T db sh -c 'createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'
-docker-compose exec -T db sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --exit-on-error' < "$backup"
-docker-compose up -d app
-```
-
-Do not use `docker-compose down -v` as a rollback or update step. The first tenant-aware release changes the database and application together. An old non-tenant app image is only a viable rollback while the database still contains one school; after other schools have been onboarded, rolling back to code that does not scope data by organization is unsafe. Prefer a forward fix. Restoring the pre-upgrade backup loses changes made after that backup, so treat it as a deliberate disaster-recovery action. Follow [the tenant database upgrade runbook](./docs/TENANCY_UPGRADE.md) for existing installations; never use `prisma db push` to upgrade a populated school database.
-
-## Manual Node setup
-
-Requirements: Node.js 22.12+ (Docker uses Node.js 22), pnpm 11.25.0, and PostgreSQL.
-
-```bash
-pnpm install
-cp .env.example .env
-```
-
-Set the required values in `.env`, then create the Prisma client and sync the schema:
-
-```bash
+pnpm install --frozen-lockfile
 pnpm exec prisma generate
-pnpm exec prisma db push
-pnpm dev
 ```
 
-The app is available at [http://localhost:3000](http://localhost:3000).
-
-Run `pnpm exec prisma db push` only for a fresh, empty local database. The Python runner is included in the Docker Compose stack. For a manual Node setup, configure `PYTHON_RUNNER_URL` and `PYTHON_RUNNER_TOKEN` to point to a separately started runner. Python code runs in disposable containers with networking disabled, a read-only root filesystem, dropped Linux capabilities, and CPU, memory, process, and time limits. Keep the runner's Docker socket accessible only to this trusted local service.
-
-Activity time is recorded in 20-second batches while the lesson tab is visible and the learner has interacted with the page within the previous minute. Dates in the activity calendar use UTC.
-
-## Useful commands
+Run the standard checks before opening a pull request:
 
 ```bash
 pnpm test
 pnpm test:runner
+pnpm test:security
 pnpm lint
 pnpm typecheck
+pnpm exec prisma validate
 pnpm build
-node scripts/verify-local-deployment.cjs school84-mvp-app-1  # after release health is ready
 ```
 
-The Node regression suite uses the built-in node:test runner; tests/test_runner_security.py contains Python unittest regressions. The two public storage build arguments are derived from the same Compose environment as runtime; rebuild the app when changing the S3 endpoint or public bucket. No storage credentials are passed as build arguments. The standalone app image runs as UID 1001 on a read-only root filesystem with bounded temporary/cache storage; development CLIs and build placeholders stay in the build/init stages. The Docker socket remains privileged host access for the local runner service, so this is a trusted local deployment, not an internet-facing sandbox service. See [AGENTS.md](./AGENTS.md) for repository-specific implementation rules and environment details.
+The PostgreSQL tenancy test must use a disposable database named `school84_tenant_test`; it creates and drops a temporary schema there:
+
+```bash
+createdb school84_tenant_test
+TEST_TENANCY_DATABASE_URL='postgresql://USER:PASSWORD@localhost:5432/school84_tenant_test' pnpm test:tenant
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution workflow and [SECURITY.md](SECURITY.md) for vulnerability reporting.
+
+## Existing installations
+
+Do not run `prisma db push` against a database containing school data. Back up and verify the database, then follow [TENANCY_UPGRADE.md](docs/TENANCY_UPGRADE.md) to apply the data-preserving tenant migration. Read the [local operations guide](docs/LOCAL_DEVELOPMENT.md) for backup, update, and recovery procedures.
+
+## Help and community
+
+Report bugs and propose features through [GitHub Issues](https://github.com/gwinell/School84/issues). See [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request, and use [SECURITY.md](SECURITY.md) for private vulnerability reports. This fork is maintained by [@gwinell](https://github.com/gwinell).
+
+## License and attribution
+
+SchoolSphere is distributed under the [MIT License](LICENSE). This repository is a fork of KnowSphere; the original license notice is preserved.

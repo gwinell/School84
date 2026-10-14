@@ -1,0 +1,50 @@
+name: Bug report
+description: Report a reproducible problem in SchoolSphere
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: Before submitting, search existing issues. Never include student data, credentials, tokens, or `.env` values.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the behavior and which school role or workflow was affected.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List the smallest set of steps that reproduces the problem.
+      placeholder: 1. Sign in as a teacher…
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: SchoolSphere version or commit
+      placeholder: e.g. main at abc1234
+    validations:
+      required: false
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Browser, operating system, and whether you use Docker or manual Node setup. Remove private data from logs.
+    validations:
+      required: false
