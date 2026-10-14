@@ -2,16 +2,17 @@ packages:
   - .
 
 allowBuilds:
-  '@prisma/engines': set this to true or false
-  msw: set this to true or false
-  prisma: set this to true or false
-  sharp: set this to true or false
-  unrs-resolver: set this to true or false
+  '@prisma/engines': true
+  prisma: true
+  sharp: true
+  msw: false
+  unrs-resolver: false
 
-ignoredBuiltDependencies:
-  - sharp
-  - unrs-resolver
+minimumReleaseAgeExclude:
+  - mysql2@3.24.6
 
-onlyBuiltDependencies:
-  - '@prisma/engines'
-  - prisma
+# Compatible patch releases for transitive advisories; no cross-major overrides.
+overrides:
+  "mysql2@3": 3.24.6
+  "fast-uri@3": 3.1.8
+  "brace-expansion@5": 5.0.12

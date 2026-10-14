@@ -27,11 +27,14 @@ The public landing route sends signed-out users to sign-in and signed-in users t
 
 ## Local setup with Docker
 
-The recommended local setup runs the app, PostgreSQL, and the isolated Python runner in Docker. The database schema is synchronized when the app starts. The app is available at [http://localhost:3001](http://localhost:3001); the existing port 3000 is left untouched.
+The recommended local setup runs the app, PostgreSQL, and the isolated Python runner in Docker. The app starts without changing the database schema. The app is available at [http://localhost:3001](http://localhost:3001); the existing port 3000 is left untouched.
 
 ```bash
 docker-compose --profile build-image build python-sandbox-image
-docker-compose up --build -d
+docker-compose up -d db
+# Fresh installations only: explicitly initialize the schema after reviewing it.
+docker-compose --profile init-schema run --build --rm schema-init
+docker-compose up --build -d app python-runner
 docker-compose --profile local-admin run --rm local-admin
 ```
 
@@ -58,15 +61,11 @@ Stop the app while preserving the database:
 docker-compose down
 ```
 
-Remove the local database only when you want a clean reset:
-
-```bash
-docker-compose down -v
-```
+Never remove the database volume during an update. Before a release, save a PostgreSQL backup, retain the currently running app and runner image IDs, and validate a candidate on port 3002. Update only the app and runner after tests and security validation pass; confirm health and smoke flows, and restore the retained images if validation fails. Do not re-run local-admin or the seed importer during a release.
 
 ## Manual Node setup
 
-Requirements: Node.js 20+, pnpm, and PostgreSQL.
+Requirements: Node.js 22.12+ (Docker uses Node.js 22), pnpm 11.25.0, and PostgreSQL.
 
 ```bash
 pnpm install
@@ -90,9 +89,12 @@ Activity time is recorded in 20-second batches while the lesson tab is visible a
 ## Useful commands
 
 ```bash
+pnpm test
+pnpm test:runner
 pnpm lint
 pnpm typecheck
 pnpm build
+node scripts/verify-local-deployment.cjs school84-mvp-app-1  # after release health is ready
 ```
 
-There is currently no automated test suite. See [AGENTS.md](./AGENTS.md) for repository-specific implementation rules and environment details.
+The Node regression suite uses the built-in node:test runner; tests/test_runner_security.py contains Python unittest regressions. The two public storage build arguments are derived from the same Compose environment as runtime; rebuild the app when changing the S3 endpoint or public bucket. No storage credentials are passed as build arguments. The standalone app image runs as UID 1001 on a read-only root filesystem with bounded temporary/cache storage; development CLIs and build placeholders stay in the build/init stages. The Docker socket remains privileged host access for the local runner service, so this is a trusted local deployment, not an internet-facing sandbox service. See [AGENTS.md](./AGENTS.md) for repository-specific implementation rules and environment details.
