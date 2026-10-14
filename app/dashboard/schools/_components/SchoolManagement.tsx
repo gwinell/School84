@@ -123,10 +123,10 @@ export function SchoolManagement({ schools }: { schools: School[] }) {
                 <p className="text-sm text-muted-foreground">/{school.slug} · {ROLE_LABEL[school.role]}</p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button variant="outline" render={<Link href={`/schools/${encodeURIComponent(school.slug)}/courses`} />}>
+                <Button nativeButton={false} variant="outline" render={<Link href={`/schools/${encodeURIComponent(school.slug)}/courses`} />}>
                   Курсы школы<ArrowUpRightIcon aria-hidden />
                 </Button>
-                {canManage ? <Button variant="outline" render={<Link href="/teacher/courses/new" />}>Создать курс</Button> : null}
+                {canManage ? <Button nativeButton={false} variant="outline" render={<Link href="/teacher/courses/new" />}>Создать курс</Button> : null}
               </div>
             </header>
 

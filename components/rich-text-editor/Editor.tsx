@@ -44,7 +44,7 @@ export function RichTextEditor({ field, courseId }: { field: RichTextEditorField
   const imageInput = useRef<HTMLInputElement>(null);
   const editor = useEditor({
     extensions: [
-      StartedKit,
+      StartedKit.configure({ underline: false }),
       UnderlineWithShortcut,
       InlineImage,
       TextAlign.configure({
