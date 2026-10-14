@@ -95,6 +95,7 @@ export function CourseRosterManager({
       setInviteUrl(data.data.inviteUrl);
       setInviteDelivery(data.data.emailDelivery ?? null);
       setInviteEmail("");
+      router.refresh();
       if (data.data.emailDelivery === "failed") {
         toast.warning("Письмо не отправлено. Ссылка на приглашение сохранена ниже.");
       } else if (data.data.emailDelivery === "sent") {

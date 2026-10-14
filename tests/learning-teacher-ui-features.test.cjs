@@ -123,8 +123,10 @@ test('course overview Continue button resumes the saved cell as well as the less
 test('bulk course invitations normalize addresses and show generic delivery plus manual links', async () => {
   const calls = [];
   const toastMessages = [];
+  let refreshCount = 0;
   const h = load('app/teacher/_components/CourseRosterManager.tsx', {
     '@/components/ui/badge': { Badge: 'Badge' },
+    'next/navigation': { useRouter: () => ({ refresh: () => { refreshCount += 1; } }) },
     sonner: { toast: { error() {}, info() {}, success: (message) => toastMessages.push(message) } },
   });
   const props = { courseId: 'course-1', enrollments: [],
@@ -145,10 +147,43 @@ test('bulk course invitations normalize addresses and show generic delivery plus
   assert.doesNotMatch(text(status), /не найдены|уже назначены|добавлено|аккаунт существует/i);
   assert.equal(find(h.render('CourseRosterManager', props), (node) => node.props['aria-label'] === 'Ссылка приглашения: b@example.test').props.value, 'https://school.example.test/invite/token');
   assert.deepEqual(toastMessages, ['Запрос обработан. Приглашения отправлены или подготовлены для передачи.']);
+  assert.equal(refreshCount, 1, 'the invitation roster refreshes after the batch succeeds');
   const formText = text(find(h.render('CourseRosterManager', props), (node) => node.type === 'form' && node.props['aria-label'] === 'Пригласить учеников списком'));
   assert.match(formText, /Приглашения по списку/);
   assert.match(formText, /после принятия приглашения/);
   assert.doesNotMatch(formText, /Массовое назначение/);
+});
+
+test('single invitation refreshes the roster and keeps the manual invite link visible', async () => {
+  const calls = [];
+  const toastMessages = [];
+  let refreshCount = 0;
+  const h = load('app/teacher/_components/CourseRosterManager.tsx', {
+    'next/navigation': { useRouter: () => ({ refresh: () => { refreshCount += 1; } }) },
+    sonner: { toast: { error() {}, info: (message) => toastMessages.push(message), success: (message) => toastMessages.push(message), warning() {} } },
+  });
+  const props = {
+    courseId: 'course-1', enrollments: [],
+    onInvite: async (input) => {
+      calls.push(input);
+      return { status: 'success', data: { inviteUrl: 'http://localhost:3002/invite/one-time-token', alreadyAssigned: false, emailDelivery: 'console' } };
+    },
+    onBulkInvite: async () => ({ status: 'success', data: { requested: 0, invalidCount: 0, sent: 0, failed: 0, emailDelivery: 'console', manualInvites: [] } }),
+    onCancel: async () => ({ status: 'success' }), onSetDueDate: async () => ({ status: 'success' }),
+  };
+  let tree = h.render('CourseRosterManager', props);
+  const form = find(tree, (node) => node.type === 'form' && node.props['aria-label'] === 'Пригласить ученика');
+  find(form, (node) => node.type === 'Input' && node.props.type === 'email').props.onChange({ target: { value: ' QA-Flow@Example.Invalid ' } });
+  tree = h.render('CourseRosterManager', props);
+  submit(find(tree, (node) => node.type === 'form' && node.props['aria-label'] === 'Пригласить ученика'));
+  await h.flush();
+
+  assert.deepEqual(plain(calls), [{ courseId: 'course-1', accessMode: 'ALL_AT_ONCE', dueAt: null, email: 'qa-flow@example.invalid' }]);
+  assert.equal(refreshCount, 1, 'the invitation roster refreshes after create');
+  const refreshedTree = h.render('CourseRosterManager', props);
+  assert.equal(find(refreshedTree, (node) => node.props['aria-label'] === 'Ссылка приглашения').props.value, 'http://localhost:3002/invite/one-time-token');
+  assert.match(text(refreshedTree), /Локальный режим: письмо не отправлено/);
+  assert.deepEqual(toastMessages, ['Локальный режим: письмо не отправлено, ссылка выведена в консоль']);
 });
 
 test('cancel access requires confirmation and reports the exact learner/course pair', async () => {
