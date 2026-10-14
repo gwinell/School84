@@ -122,12 +122,14 @@ test('course overview Continue button resumes the saved cell as well as the less
 
 test('bulk course assignment normalizes and deduplicates emails before the action call', async () => {
   const calls = [];
+  const toastMessages = [];
   const h = load('app/teacher/_components/CourseRosterManager.tsx', {
     '@/components/ui/badge': { Badge: 'Badge' },
+    sonner: { toast: { error() {}, info() {}, success: (message) => toastMessages.push(message) } },
   });
   const props = { courseId: 'course-1', enrollments: [],
     onInvite: async () => ({ status: 'success', data: { inviteUrl: null, alreadyAssigned: false } }),
-    onBulkAssign: async (value) => { calls.push(value); return { status: 'success', data: { created: 2, alreadyAssigned: 0, invalid: [] } }; },
+    onBulkAssign: async (value) => { calls.push(value); return { status: 'success', message: 'Запрос обработан. Доступ предоставлен подходящим аккаунтам.', data: { requested: 2 } }; },
     onCancel: async () => ({ status: 'success' }), onSetDueDate: async () => ({ status: 'success' }),
   };
   let tree = h.render('CourseRosterManager', props);
@@ -138,6 +140,10 @@ test('bulk course assignment normalizes and deduplicates emails before the actio
   submit(find(tree, (node) => node.type === 'form' && node.props['aria-label'] === 'Массово назначить курс'));
   await h.flush();
   assert.deepEqual(plain(calls), [{ courseId: 'course-1', accessMode: 'ALL_AT_ONCE', dueAt: null, emails: ['a@example.test', 'b@example.test'] }]);
+  const status = find(h.render('CourseRosterManager', props), (node) => node.props.role === 'status');
+  assert.match(text(status), /Позиции в запросе: 2/);
+  assert.doesNotMatch(text(status), /не найдены|уже назначены|добавлено/i);
+  assert.deepEqual(toastMessages, ['Запрос обработан. Доступ предоставлен подходящим аккаунтам.']);
 });
 
 test('cancel access requires confirmation and reports the exact learner/course pair', async () => {
@@ -146,7 +152,7 @@ test('cancel access requires confirmation and reports the exact learner/course p
   const h = load('app/teacher/_components/CourseRosterManager.tsx', {}, { window: { confirm: () => confirm } });
   const props = { courseId: 'course-1', enrollments: [{ id: 'enrollment-1', user: { id: 'learner-1', name: 'Learner', email: 'learner@example.test' }, status: 'Active', accessMode: 'ALL_AT_ONCE' }],
     onInvite: async () => ({ status: 'success', data: { inviteUrl: null, alreadyAssigned: false } }),
-    onBulkAssign: async () => ({ status: 'success', data: { created: 0, alreadyAssigned: 0, invalid: [] } }),
+    onBulkAssign: async () => ({ status: 'success', data: { requested: 0 } }),
     onCancel: async (value) => { calls.push(value); return { status: 'success' }; }, onSetDueDate: async () => ({ status: 'success' }),
   };
   let tree = h.render('CourseRosterManager', props);

@@ -42,7 +42,7 @@ export function CourseRosterManager({
   courseId: string;
   enrollments: RosterEnrollment[];
   onInvite: (input: EnrollmentOptions & { email: string }) => Promise<RosterActionResult<{ inviteUrl: string | null; alreadyAssigned: boolean; emailDelivery?: "sent" | "failed" | "console" }>>;
-  onBulkAssign: (input: EnrollmentOptions & { emails: string[] }) => Promise<RosterActionResult<{ created: number; alreadyAssigned: number; invalid: string[] }>>;
+  onBulkAssign: (input: EnrollmentOptions & { emails: string[] }) => Promise<RosterActionResult<{ requested: number }>>;
   onCancel: (input: { courseId: string; userId: string }) => Promise<RosterActionResult>;
   onSetDueDate: (input: { courseId: string; userId: string; dueAt: string | null }) => Promise<RosterActionResult>;
 }) {
@@ -108,9 +108,10 @@ export function CourseRosterManager({
         toast.error(data?.message ?? "Не удалось назначить курс");
         return;
       }
-      const counts = data.data;
-      toast.success(data.message ?? `Добавлено: ${counts.created}; уже назначено: ${counts.alreadyAssigned}; не найдено: ${counts.invalid.length}`);
-      setBulkMessage(counts.invalid.length ? `Не найдены: ${counts.invalid.join(", ")}` : `Добавлено ${counts.created}; уже были назначены ${counts.alreadyAssigned}.`);
+      const requested = data.data.requested;
+      const message = data.message ?? "Запрос обработан. Доступ предоставлен подходящим аккаунтам.";
+      toast.success(message);
+      setBulkMessage(`${message} Позиции в запросе: ${requested}.`);
       setBulkEmails("");
       router.refresh();
     });

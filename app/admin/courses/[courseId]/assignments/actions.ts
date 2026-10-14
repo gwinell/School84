@@ -17,7 +17,8 @@ const enrollmentOptions = z.object({ courseId: z.string().min(1), accessMode: z.
 const emailSchema = z.string().trim().email().max(254).transform((email) => email.toLowerCase());
 const invitationActorLimit = arcjet.withRule(fixedWindow({ mode: "LIVE", window: "1m", max: 10 }));
 const invitationRecipientLimit = arcjet.withRule(fixedWindow({ mode: "LIVE", window: "1h", max: 3 }));
-const localInvitationBuckets = new Map<string, { windowEndsAt: number; count: number }>();
+const bulkAssignmentActorLimit = arcjet.withRule(fixedWindow({ mode: "LIVE", window: "1m", max: 5 }));
+const localRateLimitBuckets = new Map<string, { windowEndsAt: number; count: number }>();
 
 async function assignExistingStudent(courseId: string, userId: string, accessMode: "ALL_AT_ONCE" | "SEQUENTIAL", dueAt: Date | null | undefined) {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true } });
@@ -49,32 +50,29 @@ export async function assignCourseToStudent(input: unknown) {
 export async function bulkAssignStudents(input: unknown) {
   const parsed = enrollmentOptions.extend({ emails: z.array(z.string()).max(100).optional(), userIds: z.array(z.string().min(1)).max(100).optional() }).safeParse(input);
   if (!parsed.success || (!parsed.data.emails?.length && !parsed.data.userIds?.length) || (parsed.success && (parsed.data.emails?.length ?? 0) + (parsed.data.userIds?.length ?? 0) > 100)) return errorResponse("Добавьте до 100 email или учеников", null);
-  const { course } = await requireCourseTeacher(parsed.data.courseId);
+  const { session: teacherSession, course } = await requireCourseTeacher(parsed.data.courseId);
+  if (!(await canBulkAssignStudents(teacherSession.user.id))) {
+    return errorResponse("Не удалось обработать назначение. Повторите позже.", null);
+  }
   const emails: string[] = [];
-  const invalid: string[] = [];
   for (const raw of parsed.data.emails ?? []) {
     const email = emailSchema.safeParse(raw);
-    if (!email.success) invalid.push(raw.slice(0, 254)); else emails.push(email.data);
+    if (email.success) emails.push(email.data);
   }
   const users = await prisma.user.findMany({ where: { OR: [{ id: { in: parsed.data.userIds ?? [] } }, { email: { in: emails } }] }, select: { id: true, email: true, role: true, enrollment: { where: { courseId: course.id }, select: { status: true } } } });
-  const inputIds = new Set(parsed.data.userIds ?? []);
   const existing = new Map(users.filter((user) => user.role !== "admin" && user.role !== "teacher").map((user) => [user.id, user]));
   const resolved = users.filter((user) => existing.has(user.id));
-  const resolvedKeys = new Set(resolved.map((user) => user.email.toLowerCase()));
-  for (const email of emails) if (!resolvedKeys.has(email)) invalid.push(email);
-  let created = 0, alreadyAssigned = 0;
   const dueAt = parsed.data.dueAt === undefined ? undefined : parsed.data.dueAt ? new Date(parsed.data.dueAt) : null;
   await prisma.$transaction(async (tx) => {
     for (const user of resolved) {
-      if (user.enrollment.some((enrollment) => enrollment.status === "Active")) { alreadyAssigned++; continue; }
+      if (user.enrollment.some((enrollment) => enrollment.status === "Active")) continue;
       await tx.enrollment.upsert({ where: { userId_courseId: { userId: user.id, courseId: course.id } }, create: { userId: user.id, courseId: course.id, status: "Active", amount: 0, accessMode: parsed.data.accessMode, dueAt: dueAt ?? null }, update: { status: "Active", accessMode: parsed.data.accessMode, ...(dueAt === undefined ? {} : { dueAt }) } });
       await tx.studentNotification.upsert({ where: { userId_courseId_type: { userId: user.id, courseId: course.id, type: "COURSE_ASSIGNED" } }, create: { userId: user.id, courseId: course.id, type: "COURSE_ASSIGNED", title: "Вам назначен курс", body: "Новый курс доступен в личном кабинете." }, update: { readAt: null } });
-      created++;
     }
   });
-  for (const id of inputIds) if (!resolved.some((user) => user.id === id)) invalid.push(id);
   revalidatePath(`/teacher/courses/${course.id}`); revalidatePath("/dashboard");
-  return successResponse("Групповое назначение завершено", { created, alreadyAssigned, invalid: [...new Set(invalid)] });
+  const requested = (parsed.data.emails?.length ?? 0) + (parsed.data.userIds?.length ?? 0);
+  return successResponse("Запрос обработан. Доступ предоставлен подходящим аккаунтам.", { requested });
 }
 
 export async function inviteStudentToCourse(input: unknown) {
@@ -136,6 +134,20 @@ function rateLimitFingerprint(value: string) {
   return createHash("sha256").update(value).digest("hex");
 }
 
+async function canBulkAssignStudents(teacherId: string) {
+  const fingerprint = rateLimitFingerprint(`bulk-assign:actor:${teacherId}`);
+  if (env.ARCJET_ENABLED !== "true") {
+    return takeLocalRateLimitSlot(`bulk-assignment:${fingerprint}`, 5, 60_000);
+  }
+  try {
+    const req = await request();
+    const decision = await bulkAssignmentActorLimit.protect(req, { fingerprint });
+    return !decision.isDenied();
+  } catch {
+    return false;
+  }
+}
+
 async function canSendCourseInvitation({ teacherId, email }: { teacherId: string; email: string }) {
   const actorFingerprint = rateLimitFingerprint(`course-invite:actor:${teacherId}`);
   const recipientFingerprint = rateLimitFingerprint(`course-invite:recipient:${teacherId}:${email}`);
@@ -145,8 +157,8 @@ async function canSendCourseInvitation({ teacherId, email }: { teacherId: string
   // unbounded invite emails. Map size is capped so unique addresses cannot grow
   // memory indefinitely; at capacity, new buckets are rejected until expiry.
   if (env.ARCJET_ENABLED !== "true") {
-    return takeLocalInvitationSlot(actorFingerprint, 10, 60_000) &&
-      takeLocalInvitationSlot(recipientFingerprint, 3, 60 * 60_000);
+    return takeLocalRateLimitSlot(actorFingerprint, 10, 60_000) &&
+      takeLocalRateLimitSlot(recipientFingerprint, 3, 60 * 60_000);
   }
 
   try {
@@ -161,18 +173,18 @@ async function canSendCourseInvitation({ teacherId, email }: { teacherId: string
   }
 }
 
-function takeLocalInvitationSlot(fingerprint: string, max: number, windowMs: number) {
+function takeLocalRateLimitSlot(fingerprint: string, max: number, windowMs: number) {
   const now = Date.now();
-  for (const [key, bucket] of localInvitationBuckets) {
-    if (bucket.windowEndsAt <= now) localInvitationBuckets.delete(key);
+  for (const [key, bucket] of localRateLimitBuckets) {
+    if (bucket.windowEndsAt <= now) localRateLimitBuckets.delete(key);
   }
 
   const windowStart = Math.floor(now / windowMs) * windowMs;
   const key = `${fingerprint}:${windowMs}:${windowStart}`;
-  const bucket = localInvitationBuckets.get(key);
+  const bucket = localRateLimitBuckets.get(key);
   if (!bucket) {
-    if (localInvitationBuckets.size >= 20_000) return false;
-    localInvitationBuckets.set(key, { windowEndsAt: windowStart + windowMs, count: 1 });
+    if (localRateLimitBuckets.size >= 20_000) return false;
+    localRateLimitBuckets.set(key, { windowEndsAt: windowStart + windowMs, count: 1 });
     return true;
   }
   if (bucket.count >= max) return false;

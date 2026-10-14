@@ -98,6 +98,89 @@ test('bulk assignment checks course scope before querying users or writing enrol
   assert.deepEqual(dbCalls, []);
 });
 
+function bulkAssignmentAction({ users = [], denied = false, limiterThrows = false, arcjetEnabled = true } = {}) {
+  const events = [];
+  let limiterCalls = 0;
+  const subject = load(teacherActions, {
+    '@/app/data/teacher/require-course-teacher': { requireCourseTeacher: async () => ({
+      session: { user: { id: 'teacher-1', role: 'teacher' } },
+      course: { id: 'course-1', title: 'Course' },
+    }) },
+    '@/lib/env': { env: { ARCJET_ENABLED: arcjetEnabled ? 'true' : 'false' } },
+    '@/lib/arcjet': {
+      __esModule: true,
+      default: { withRule() { return { protect: async (_req, data) => {
+        limiterCalls++;
+        events.push({ type: 'limit', fingerprint: data.fingerprint });
+        if (limiterThrows) throw Error('limiter unavailable');
+        return { isDenied: () => denied };
+      } }; } },
+      fixedWindow: (config) => config,
+    },
+    '@arcjet/next': { request: async () => ({ requestId: 'mock' }) },
+    '@/lib/prisma': {
+      user: { findMany: async (query) => { events.push({ type: 'lookup', query }); return users; } },
+      $transaction: async (callback) => callback({
+        enrollment: { upsert: async (query) => events.push({ type: 'enrollment', query }) },
+        studentNotification: { upsert: async (query) => events.push({ type: 'notification', query }) },
+      }),
+    },
+  });
+  return { action: subject.bulkAssignStudents, events, limiterCalls: () => limiterCalls };
+}
+
+test('bulk assignment response does not disclose account, role, or enrollment state for email or user ID targets', async () => {
+  const targets = [
+    { name: 'new learner email', input: { emails: ['student@example.test'] }, users: [{ id: 'learner-1', email: 'student@example.test', role: 'user', enrollment: [] }], writes: true },
+    { name: 'already enrolled learner email', input: { emails: ['student@example.test'] }, users: [{ id: 'learner-2', email: 'student@example.test', role: 'user', enrollment: [{ status: 'Active' }] }], writes: false },
+    { name: 'teacher email', input: { emails: ['target@example.test'] }, users: [{ id: 'teacher-2', email: 'target@example.test', role: 'teacher', enrollment: [] }], writes: false },
+    { name: 'admin email', input: { emails: ['target@example.test'] }, users: [{ id: 'admin-2', email: 'target@example.test', role: 'admin', enrollment: [] }], writes: false },
+    { name: 'unknown email', input: { emails: ['target@example.test'] }, users: [], writes: false },
+    { name: 'new learner user ID', input: { userIds: ['learner-1'] }, users: [{ id: 'learner-1', email: 'student@example.test', role: 'user', enrollment: [] }], writes: true },
+    { name: 'teacher user ID', input: { userIds: ['teacher-2'] }, users: [{ id: 'teacher-2', email: 'target@example.test', role: 'teacher', enrollment: [] }], writes: false },
+    { name: 'unknown user ID', input: { userIds: ['missing-id'] }, users: [], writes: false },
+  ];
+  const responses = [];
+  for (const target of targets) {
+    const fixture = bulkAssignmentAction({ users: target.users });
+    const result = await fixture.action({ courseId: 'course-1', accessMode: 'ALL_AT_ONCE', ...target.input });
+    assert.equal(result.status, 'success', target.name);
+    assert.deepEqual(plain(result.data), { requested: 1 }, target.name);
+    assert.equal(result.message, 'Запрос обработан. Доступ предоставлен подходящим аккаунтам.', target.name);
+    assert.equal(fixture.events.filter((event) => event.type === 'enrollment').length > 0, target.writes, target.name);
+    responses.push(plain(result));
+  }
+  for (const response of responses.slice(1)) assert.deepEqual(response, responses[0]);
+});
+
+test('bulk assignment actor limit denies before account lookup or enrollment writes', async () => {
+  const fixture = bulkAssignmentAction({ denied: true });
+  const result = await fixture.action({ courseId: 'course-1', emails: ['target@example.test'] });
+  assert.equal(result.status, 'error');
+  assert.equal(result.message, 'Не удалось обработать назначение. Повторите позже.');
+  assert.equal(fixture.limiterCalls(), 1);
+  assert.deepEqual(fixture.events.map((event) => event.type), ['limit']);
+});
+
+test('bulk assignment fails closed when Arcjet cannot decide', async () => {
+  const fixture = bulkAssignmentAction({ limiterThrows: true });
+  const result = await fixture.action({ courseId: 'course-1', userIds: ['learner-1'] });
+  assert.equal(result.status, 'error');
+  assert.equal(result.message, 'Не удалось обработать назначение. Повторите позже.');
+  assert.deepEqual(fixture.events.map((event) => event.type), ['limit']);
+});
+
+test('local/demo bulk assignment fallback rate-limits before lookup after five requests', async () => {
+  const fixture = bulkAssignmentAction({ arcjetEnabled: false });
+  const input = { courseId: 'course-1', emails: ['target@example.test'] };
+  const results = [];
+  for (let i = 0; i < 6; i++) results.push(await fixture.action(input));
+  assert.deepEqual(results.map((result) => result.status), [...Array(5).fill('success'), 'error']);
+  assert.equal(fixture.limiterCalls(), 0, 'local mode does not call Arcjet');
+  assert.equal(fixture.events.filter((event) => event.type === 'lookup').length, 5);
+  assert.equal(fixture.events.filter((event) => event.type === 'limit').length, 0);
+});
+
 test('manual review rejects out-of-range, fractional, empty, and ambiguous targets before lookup', async () => {
   let lookups = 0;
   const subject = load(teacherActions, {

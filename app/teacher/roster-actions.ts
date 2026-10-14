@@ -18,7 +18,7 @@ export async function inviteStudentToCourseForRoster(
 
 export async function bulkAssignStudentsForRoster(
   input: EnrollmentOptions & { emails: string[] },
-): Promise<RosterActionResult<{ created: number; alreadyAssigned: number; invalid: string[] }>> {
+): Promise<RosterActionResult<{ requested: number }>> {
   const result = await bulkAssignStudents(input);
   return { ...result, data: result.data ?? undefined };
 }
