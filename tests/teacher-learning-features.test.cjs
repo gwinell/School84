@@ -27,11 +27,42 @@ function load(file, mocks = {}, globals = {}) {
         errorResponse: (message, data) => ({ status: 'error', message, data }),
         successResponse: (message, data) => ({ status: 'success', message, data }),
       };
+      if (name === '@/lib/organization/access-policy') {
+        const source = fs.readFileSync(path.join(sourceRoot, 'lib/organization/access-policy.ts'), 'utf8');
+        const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+        const policyModule = { exports: {} };
+        new Function('module', 'exports', js)(policyModule, policyModule.exports);
+        return policyModule.exports;
+      }
+      if (name === '@/app/data/organization/authorization') return {
+        requireOrganizationRole: async () => ({ session: { user: { id: 'teacher-1', role: 'teacher' } }, membership: { role: 'OWNER' } }),
+        resolveTenantCourse: async () => null,
+      };
+      if (name === '@/app/data/teacher/require-course-teacher') return {
+        requireCourseTeacher: async (courseId) => ({ session: { user: { id: 'teacher-1', role: 'teacher' } }, course: { id: courseId, organizationId: 'org-1', slug: 'course' } }),
+      };
+      if (name === '@/app/data/teacher/get-managed-course-ids') return { getManagedCourseIds: async (userId, role) => {
+        if (role === 'admin') return null;
+        const prisma = mocks['@/lib/prisma'];
+        const rows = prisma?.courseInstructor?.findMany ? await prisma.courseInstructor.findMany({ where: { userId } }) : [];
+        return rows.map((row) => row.courseId);
+      } };
       if (name === '@/lib/resend') return { resend: { emails: { send: async () => ({}) } } };
       if (name === '@/lib/arcjet') return { __esModule: true, default: { withRule() { return { protect: async () => ({ isDenied: () => false }) }; } }, fixedWindow: (config) => config };
       if (name === '@arcjet/next') return { request: async () => ({}) };
       if (name === '@/app/data/teacher/require-teacher') return { requireTeacher: async () => ({ user: { id: 'teacher-1', role: 'teacher' } }) };
-      if (name === '@/app/data/user/require-user') return { requireUser: async () => ({ user: { id: 'student-1', role: 'user' } }) };
+      if (name === '@/app/data/user/require-user') return { requireUser: async () => ({ user: { id: 'student-1', role: 'user', email: 'student@example.test', emailVerified: true } }) };
+      if (name === '@/app/data/user/course-learner-access') {
+        const db = mocks['@/lib/prisma'];
+        return { getCourseLearnerAccess: async ({ userId, userRole, organizationId, courseId }) => {
+          if (userRole === 'admin') return { status: 'Active', accessMode: 'ALL_AT_ONCE' };
+          const [membership, enrollment] = await Promise.all([
+            db.organizationMembership?.findUnique ? db.organizationMembership.findUnique({ where: { organizationId_userId: { organizationId, userId } } }) : { role: 'STUDENT' },
+            db.enrollment?.findUnique ? db.enrollment.findUnique({ where: { userId_courseId: { userId, courseId } } }) : null,
+          ]);
+          return (membership?.role ?? 'STUDENT') === 'STUDENT' && enrollment?.status === 'Active' ? enrollment : null;
+        } };
+      }
       return require(name);
     },
     Date, Map, Set, Object, console, ...globals,
@@ -50,7 +81,8 @@ const plain = (value) => JSON.parse(JSON.stringify(value));
 function mockCourseTeacher({ role = 'teacher', userId = 'teacher-1', assigned = true, missing = false } = {}) {
   const calls = { course: 0, instructor: 0 };
   const prisma = {
-    course: { findUnique: async () => { calls.course++; return missing ? null : { id: 'course-1', title: 'Course', slug: 'course' }; } },
+    course: { findUnique: async () => { calls.course++; return missing ? null : { id: 'course-1', title: 'Course', slug: 'course', organizationId: 'school-1' }; } },
+    organizationMembership: { findUnique: async () => ({ role: 'TEACHER' }) },
     courseInstructor: { findUnique: async () => { calls.instructor++; return assigned ? { courseId: 'course-1' } : null; } },
   };
   const subject = load('app/data/teacher/require-course-teacher.ts', {
@@ -71,14 +103,14 @@ test('course teacher guard permits only its assigned course and preserves admin 
   assert.equal(admin.calls.instructor, 0);
 });
 
-test('course teacher guard denies an unassigned teacher before course lookup and returns not found for assigned missing course', async () => {
+test('course teacher guard denies unassigned membership and returns not found for missing course', async () => {
   const foreign = mockCourseTeacher({ assigned: false });
   await assert.rejects(foreign.subject.requireCourseTeacher('course-2'), /REDIRECT:\/not-admin/);
   assert.equal(foreign.calls.instructor, 1);
 
   const missing = mockCourseTeacher({ missing: true });
   await assert.rejects(missing.subject.requireCourseTeacher('deleted-course'), /NOT_FOUND/);
-  assert.equal(missing.calls.instructor, 1);
+  assert.equal(missing.calls.instructor, 0);
 });
 
 test('bulk assignment checks course scope before querying users or writing enrollments', async () => {
@@ -104,7 +136,7 @@ function bulkAssignmentAction({ users = [], denied = false, limiterThrows = fals
   const subject = load(teacherActions, {
     '@/app/data/teacher/require-course-teacher': { requireCourseTeacher: async () => ({
       session: { user: { id: 'teacher-1', role: 'teacher' } },
-      course: { id: 'course-1', title: 'Course' },
+      course: { id: 'course-1', title: 'Course', organizationId: 'school-1' },
     }) },
     '@/lib/env': { env: { ARCJET_ENABLED: arcjetEnabled ? 'true' : 'false' } },
     '@/lib/arcjet': {
@@ -145,7 +177,9 @@ test('bulk user-ID assignment response is generic and has no email lookup', asyn
     assert.deepEqual(plain(result.data), { requested: 1 }, target.name);
     assert.equal(result.message, 'Запрос обработан. Доступ предоставлен подходящим аккаунтам.', target.name);
     assert.equal(fixture.events.filter((event) => event.type === 'enrollment').length > 0, target.writes, target.name);
-    assert.deepEqual(Object.keys(fixture.events.find((event) => event.type === 'lookup').query.where), ['id']);
+    const lookupWhere = fixture.events.find((event) => event.type === 'lookup').query.where;
+    assert.deepEqual(Object.keys(lookupWhere).sort(), ['id', 'organizationMemberships']);
+    assert.deepEqual(plain(lookupWhere.organizationMemberships), { some: { organizationId: 'school-1', role: 'STUDENT' } });
     responses.push(plain(result));
   }
   for (const response of responses.slice(1)) assert.deepEqual(response, responses[0]);
@@ -401,6 +435,8 @@ test('accepting a verified matching bulk invitation enrolls the learner only at 
       } },
       $transaction: async (callback) => callback({
         courseInvitation: { updateMany: async () => { invitationClaimed = true; return { count: 1 }; } },
+        course: { findUnique: async () => ({ organizationId: 'school-1' }) },
+        organizationMembership: { upsert: async () => {} },
         enrollment: { upsert: async (query) => writes.push(query) },
         studentNotification: { upsert: async () => {} },
       }),
@@ -595,14 +631,19 @@ test('learner quiz history query is scoped to the signed-in user and active cour
     './require-user': { requireUser: async () => ({ user: { id: 'learner-1', role: 'user' } }) },
     '@/app/data/user/require-user': { requireUser: async () => ({ user: { id: 'learner-1', role: 'user' } }) },
     '@/lib/prisma': {
-      lessonCell: { findUnique: async () => ({ id: 'quiz-cell', lesson: { chapter: { courseId: 'course-1' } } }) },
+      lessonCell: { findUnique: async () => ({ id: 'quiz-cell', lesson: { chapter: { courseId: 'course-1', course: { organizationId: 'school-1' } } } }) },
+      organizationMembership: { findUnique: async () => ({ userId: 'learner-1', role: 'STUDENT' }) },
       enrollment: { findUnique: async () => ({ status: 'Active' }) },
       quizAttempt: { findMany: async (query) => { historyQuery = query; return []; } },
     },
     '@/lib/env': { env: { BETTER_AUTH_URL: 'http://localhost' } },
   });
   await subject.getMyQuizAttempts('quiz-cell');
-  assert.deepEqual(plain(historyQuery.where), { userId: 'learner-1', lessonCellId: 'quiz-cell' });
+  const historyWhere = plain(historyQuery.where);
+  assert.equal(historyWhere.userId, 'learner-1');
+  assert.equal(historyWhere.lessonCellId, 'quiz-cell');
+  assert.equal(historyWhere.lessonCell.is.lesson.is.chapter.is.course.is.organization.is.memberships.some.role, 'STUDENT');
+  assert.equal(historyWhere.lessonCell.is.lesson.is.chapter.is.course.is.enrollment.some.status, 'Active');
   assert.equal(historyQuery.select.selectedAnswers, true);
   assert.equal(historyQuery.select.feedback.select.comment, true);
   assert.equal(historyQuery.select.correctAnswers, undefined);
@@ -616,7 +657,8 @@ test('quiz history is empty for a learner whose enrollment was revoked', async (
     '@/app/data/teacher/require-teacher': { requireTeacher: async () => ({ user: { id: 'teacher-1', role: 'teacher' } }) },
     '@/app/data/user/require-user': { requireUser: async () => ({ user: { id: 'learner-1', role: 'user' } }) },
     '@/lib/prisma': {
-      lessonCell: { findUnique: async () => ({ id: 'quiz-cell', lesson: { chapter: { courseId: 'course-1' } } }) },
+      lessonCell: { findUnique: async () => ({ id: 'quiz-cell', lesson: { chapter: { courseId: 'course-1', course: { organizationId: 'school-1' } } } }) },
+      organizationMembership: { findUnique: async () => ({ userId: 'learner-1', role: 'STUDENT' }) },
       enrollment: { findUnique: async () => ({ status: 'Cancelled' }) },
       quizAttempt: { findMany: async () => { historyReads++; return [{ id: 'private-attempt' }]; } },
     },

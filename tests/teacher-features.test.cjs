@@ -8,16 +8,16 @@ const ts = require('typescript');
 function load(file, mocks = {}) {
   const output = ts.transpileModule(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
   const exports = {};
-  vm.runInNewContext(output, { exports, require(name) { if (name in mocks) return mocks[name]; if (name === 'server-only') return {}; if (name === 'next/navigation') return { redirect: () => { throw Error('REDIRECT'); }, notFound: () => { throw Error('NOT_FOUND'); } }; if (name === '@/lib/resend') return { resend: { emails: { send: async () => ({}) } } }; if (name === '@/lib/arcjet') return { __esModule: true, default: { withRule() { return { protect: async () => ({ isDenied: () => false }) }; } }, fixedWindow: (config) => config }; if (name === '@arcjet/next') return { request: async () => ({}) }; return require(name); }, Date, Set, Map, Promise }, { filename: file });
+  vm.runInNewContext(output, { exports, require(name) { if (name in mocks) return mocks[name]; if (name === 'server-only') return {}; if (name === 'next/navigation') return { redirect: () => { throw Error('REDIRECT'); }, notFound: () => { throw Error('NOT_FOUND'); } }; if (name === '@/lib/organization/access-policy') { const js = ts.transpileModule(fs.readFileSync(path.join(__dirname, '..', 'lib/organization/access-policy.ts'), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText; const mod = { exports: {} }; new Function('module', 'exports', js)(mod, mod.exports); return mod.exports; } if (name === '@/app/data/teacher/get-managed-course-ids') return { getManagedCourseIds: async () => (await mocks['@/lib/prisma']?.courseInstructor?.findMany?.()).map((row) => row.courseId) }; if (name === '@/app/data/organization/authorization') return { requireOrganizationRole: async () => ({ session: { user: { id: 'teacher-a', role: 'teacher' } }, membership: { role: 'OWNER' } }) }; if (name === '@/lib/resend') return { resend: { emails: { send: async () => ({}) } } }; if (name === '@/lib/arcjet') return { __esModule: true, default: { withRule() { return { protect: async () => ({ isDenied: () => false }) }; } }, fixedWindow: (config) => config }; if (name === '@arcjet/next') return { request: async () => ({}) }; return require(name); }, Date, Set, Map, Promise }, { filename: file });
   return exports;
 }
 test('course authorization permits only admin or assigned teacher', async () => {
   let memberships = 0, courseReads = 0;
-  const courseDb = { course: { findUnique: async () => { courseReads++; return { id: 'course-a', title: 'A', slug: 'a' }; } }, courseInstructor: { findUnique: async () => { memberships++; return memberships === 1 ? { courseId: 'course-a' } : null; } } };
+  const courseDb = { course: { findUnique: async () => { courseReads++; return { id: 'course-a', title: 'A', slug: 'a', organizationId: 'school-a' }; } }, organizationMembership: { findUnique: async () => ({ role: 'TEACHER' }) }, courseInstructor: { findUnique: async () => { memberships++; return memberships === 1 ? { courseId: 'course-a' } : null; } } };
   const helper = load('app/data/teacher/require-course-teacher.ts', { '@/lib/prisma': courseDb, './require-teacher': { requireTeacher: async () => ({ user: { id: 'teacher-a', role: 'teacher' } }) } });
   assert.equal((await helper.requireCourseTeacher('course-a')).course.id, 'course-a');
   await assert.rejects(helper.requireCourseTeacher('course-b'), /REDIRECT/);
-  assert.equal(courseReads, 1, 'foreign course IDs are denied before reading the Course row');
+  assert.equal(courseReads, 2, 'course tenant identity is resolved before applying membership and instructor policy');
   const admin = load('app/data/teacher/require-course-teacher.ts', { '@/lib/prisma': courseDb, './require-teacher': { requireTeacher: async () => ({ user: { id: 'admin', role: 'admin' } }) } });
   assert.equal((await admin.requireCourseTeacher('course-a')).session.user.role, 'admin');
 });
@@ -38,18 +38,19 @@ test('soft due-date equality is on time; only later submissions are late', () =>
   assert.equal(isSubmissionLate(new Date(due.getTime() + 1), due), true);
   assert.equal(isSubmissionLate(due, null), false);
 });
-test('teacher media access verifies course membership before course existence and limits cleanup by course', async () => {
+test('teacher media access verifies school membership and course assignment before signing uploads', async () => {
   let courseReads = 0, membershipReads = 0;
   const access = load('app/api/s3/course-access.ts', { '@/lib/prisma': {
     courseInstructor: { findUnique: async () => { membershipReads++; return null; } },
-    course: { findUnique: async () => { courseReads++; return { id: 'course-a' }; } },
+    organizationMembership: { findUnique: async () => { membershipReads++; return { role: 'TEACHER' }; } },
+    course: { findUnique: async () => { courseReads++; return { id: 'course-a', organizationId: 'school-a' }; } },
   } });
   assert.equal(await access.canAccessUploadCourse({ role: 'teacher', userId: 'teacher-b', courseId: 'course-a' }), false);
-  assert.equal(membershipReads, 1);
-  assert.equal(courseReads, 0, 'foreign course IDs cannot be probed');
+  assert.equal(membershipReads, 2);
+  assert.equal(courseReads, 1, 'course is resolved to its school before the membership check');
   assert.equal(await access.canAccessUploadCourse({ role: 'student', userId: 'student', courseId: 'course-a' }), false);
   assert.equal(await access.canAccessUploadCourse({ role: 'admin', userId: 'admin' }), true);
-  assert.equal(courseReads, 0);
+  assert.equal(courseReads, 2);
 
   let deleted = 0;
   const discard = load('lib/s3/discard-upload.ts', { '@/lib/prisma': {

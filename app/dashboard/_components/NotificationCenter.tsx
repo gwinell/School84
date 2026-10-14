@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { tryCatch } from "@/hooks/try-catch";
+import { dashboardCourseHref } from "@/lib/organization/course-links";
 
 export type StudentNotification = {
   id: string;
@@ -19,7 +20,7 @@ export type StudentNotification = {
   readAt: Date | string | null;
   createdAt: Date | string;
   courseId: string;
-  course: { title: string; slug: string };
+  course: { title: string; slug: string; organization: { slug: string } };
 };
 
 export function NotificationCenter({
@@ -51,7 +52,7 @@ export function NotificationCenter({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2"><p className="font-medium">{notification.title}</p>{!notification.readAt ? <Badge>Новое</Badge> : null}</div>
           <p className="mt-1 text-sm text-muted-foreground">{notification.body}</p>
-          <Link href={`/dashboard/courses/${notification.course.slug}`} className="mt-2 inline-block text-sm underline underline-offset-4">{notification.course.title}</Link>
+          <Link href={dashboardCourseHref(notification.course.organization.slug, notification.course.slug)} className="mt-2 inline-block text-sm underline underline-offset-4">{notification.course.title}</Link>
         </div>
         {!notification.readAt ? <Button type="button" variant="outline" size="sm" disabled={isPending} aria-label={`Отметить прочитанным: ${notification.title}`} onClick={() => markRead(notification.id)}><CheckIcon />Прочитано</Button> : <span className="text-xs text-muted-foreground">{new Intl.DateTimeFormat("ru-RU", { dateStyle: "medium" }).format(new Date(notification.createdAt))}</span>}
       </article>)}

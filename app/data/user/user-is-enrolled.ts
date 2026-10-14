@@ -28,17 +28,17 @@ export async function checkIfCourseBought({
 
   if (!resolvedUserId) return false;
 
-  const enrollment = await prisma.enrollment.findUnique({
+  const enrollment = await prisma.enrollment.findFirst({
     where: {
-      userId_courseId: {
-        userId: resolvedUserId,
-        courseId: courseId,
-      },
+      userId: resolvedUserId,
+      courseId,
+      status: "Active",
+      course: { organization: { memberships: { some: { userId: resolvedUserId, role: "STUDENT" } } } },
     },
     select: {
       status: true,
     },
   });
 
-  return enrollment?.status === "Active";
+  return Boolean(enrollment);
 }

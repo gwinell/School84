@@ -8,14 +8,17 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import type { tCourseForLearningChapter } from "@/app/data/user/get-course-for-learning";
 import { LessonChaptersList } from "./LessonChaptersList";
+import { dashboardCourseHref } from "@/lib/organization/course-links";
 
 export function PlayerHeader({
   courseSlug,
   courseTitle,
+  organizationSlug,
   chapters,
   children,
 }: {
   courseSlug: string;
+  organizationSlug: string;
   courseTitle: string;
   chapters: tCourseForLearningChapter[];
   children: ReactNode;
@@ -48,7 +51,7 @@ export function PlayerHeader({
           <PanelLeftIcon />
         </Button>
         <Link
-          href={`/dashboard/courses/${courseSlug}`}
+          href={dashboardCourseHref(organizationSlug, courseSlug)}
           className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-300 transition-colors hover:bg-white/10 hover:text-white sm:text-sm"
         >
           <ChevronLeftIcon className="size-4" aria-hidden />
@@ -65,7 +68,7 @@ export function PlayerHeader({
 
       <div className={`grid min-h-0 flex-1 ${sidebarOpen ? "lg:grid-cols-[280px_minmax(0,1fr)]" : "lg:grid-cols-[0_minmax(0,1fr)]"}`}>
         <aside className={`hidden min-h-0 overflow-hidden border-r bg-card lg:block ${sidebarOpen ? "" : "border-r-0"}`}>
-          {sidebarOpen ? <LessonChaptersList chapters={chapters} courseSlug={courseSlug} /> : null}
+          {sidebarOpen ? <LessonChaptersList chapters={chapters} courseSlug={courseSlug} organizationSlug={organizationSlug} /> : null}
         </aside>
         <main className="min-w-0 overflow-x-hidden overflow-y-auto p-4 sm:p-6">
           {children}
@@ -81,6 +84,7 @@ export function PlayerHeader({
           <LessonChaptersList
             chapters={chapters}
             courseSlug={courseSlug}
+            organizationSlug={organizationSlug}
             onNavigate={() => setMobileOpen(false)}
           />
         </SheetContent>

@@ -7,6 +7,7 @@ import { getLearningLocationHref } from "@/app/dashboard/_lib/learning-links";
 
 interface CourseOverviewHeaderProps {
   slug: string;
+  organizationSlug: string;
   title: string;
   smallDesc: string;
   imageUrl: string | null;
@@ -17,6 +18,7 @@ interface CourseOverviewHeaderProps {
 
 export function CourseOverviewHeader({
   slug,
+  organizationSlug,
   title,
   smallDesc,
   imageUrl,
@@ -58,7 +60,7 @@ export function CourseOverviewHeader({
           size="lg"
           nativeButton={false}
           render={
-            <Link href={getLearningLocationHref({ slug, lessonId: resumeLessonId, cellId: resumeCellId })} />
+            <Link href={getLearningLocationHref({ slug, organizationSlug, lessonId: resumeLessonId, cellId: resumeCellId })} />
           }
         >
           <PlayCircleIcon className="size-4" />

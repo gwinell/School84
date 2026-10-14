@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { requireTeacher } from "@/app/data/teacher/require-teacher";
+import { getManagedCourseIds } from "@/app/data/teacher/get-managed-course-ids";
 import { Prisma } from "@/lib/generated/prisma/client";
 import prisma from "@/lib/prisma";
 import { errorResponse, successResponse } from "@/lib/responses";
@@ -50,9 +51,7 @@ function normalizeImageKeys(content: string | null) {
 
 async function getLessonPath(lessonId: string) {
   const session = await requireTeacher();
-  const managedCourseIds = session.user.role === "admin"
-    ? null
-    : (await prisma.courseInstructor.findMany({ where: { userId: session.user.id }, select: { courseId: true } })).map((row) => row.courseId);
+  const managedCourseIds = await getManagedCourseIds(session.user.id, session.user.role);
   return prisma.lesson.findFirst({
     where: { id: lessonId, ...(managedCourseIds ? { chapter: { courseId: { in: managedCourseIds } } } : {}) },
     select: {
@@ -65,9 +64,7 @@ async function getLessonPath(lessonId: string) {
 
 async function getCellPath(cellId: string) {
   const session = await requireTeacher();
-  const managedCourseIds = session.user.role === "admin"
-    ? null
-    : (await prisma.courseInstructor.findMany({ where: { userId: session.user.id }, select: { courseId: true } })).map((row) => row.courseId);
+  const managedCourseIds = await getManagedCourseIds(session.user.id, session.user.role);
   return prisma.lessonCell.findFirst({
     where: { id: cellId, ...(managedCourseIds ? { lesson: { chapter: { courseId: { in: managedCourseIds } } } } : {}) },
     select: { id: true, lessonId: true, lesson: { select: { chapter: { select: { courseId: true } } } } },

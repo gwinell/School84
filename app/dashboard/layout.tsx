@@ -5,6 +5,7 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 
 import { DashboardHeader } from "./_components/DashboardHeader";
 import { DashboardSidebar } from "./_components/DashboardSidebar";
+import prisma from "@/lib/prisma";
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -12,6 +13,10 @@ interface DashboardLayoutProps {
 
 export default async function DashboardLayout({ children }: DashboardLayoutProps) {
   const session = await requireUser();
+  const teachingMembership = await prisma.organizationMembership.findFirst({
+    where: { userId: session.user.id, role: { in: ["OWNER", "ADMIN", "TEACHER"] } },
+    select: { userId: true },
+  });
   return (
     <SidebarProvider
       className="h-svh overflow-hidden"
@@ -23,7 +28,7 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
       }
     >
       {/* Sidebar */}
-      <DashboardSidebar variant="inset" role={session.user.role ?? undefined} />
+      <DashboardSidebar variant="inset" role={session.user.role ?? undefined} hasTeachingAccess={Boolean(teachingMembership)} />
 
       <SidebarInset className="min-h-0 overflow-hidden">
         {/* Header */}

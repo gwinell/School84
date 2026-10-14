@@ -7,6 +7,9 @@ import { z } from "zod";
 import arcjet, { fixedWindow } from "@/lib/arcjet";
 import { requireCourseTeacher } from "@/app/data/teacher/require-course-teacher";
 import { requireTeacher } from "@/app/data/teacher/require-teacher";
+import { requireOrganizationRole } from "@/app/data/organization/authorization";
+import { roleAfterTeacherAssignment } from "@/lib/organization/access-policy";
+import { getManagedCourseIds } from "@/app/data/teacher/get-managed-course-ids";
 import { requireUser } from "@/app/data/user/require-user";
 import prisma from "@/lib/prisma";
 import { env } from "@/lib/env";
@@ -21,12 +24,20 @@ const bulkAssignmentActorLimit = arcjet.withRule(fixedWindow({ mode: "LIVE", win
 const localRateLimitBuckets = new Map<string, { windowEndsAt: number; count: number }>();
 
 async function assignExistingStudent(courseId: string, userId: string, accessMode: "ALL_AT_ONCE" | "SEQUENTIAL", dueAt: Date | null | undefined) {
+  const course = await prisma.course.findUnique({ where: { id: courseId }, select: { organizationId: true } });
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true } });
-  if (!user || user.role === "admin" || user.role === "teacher") return false;
-  await prisma.enrollment.upsert({
-    where: { userId_courseId: { userId, courseId } },
-    create: { userId, courseId, status: "Active", amount: 0, accessMode, dueAt: dueAt ?? null },
-    update: { status: "Active", accessMode, ...(dueAt === undefined ? {} : { dueAt }) },
+  if (!course || !user || user.role === "admin" || user.role === "teacher") return false;
+  const membership = await prisma.organizationMembership.findUnique({
+    where: { organizationId_userId: { organizationId: course.organizationId, userId } },
+    select: { role: true },
+  });
+  if (membership?.role !== "STUDENT") return false;
+  await prisma.$transaction(async (tx) => {
+    await tx.enrollment.upsert({
+      where: { userId_courseId: { userId, courseId } },
+      create: { userId, courseId, status: "Active", amount: 0, accessMode, dueAt: dueAt ?? null },
+      update: { status: "Active", accessMode, ...(dueAt === undefined ? {} : { dueAt }) },
+    });
   });
   await prisma.studentNotification.upsert({
     where: { userId_courseId_type: { userId, courseId, type: "COURSE_ASSIGNED" } },
@@ -55,7 +66,7 @@ export async function bulkAssignStudents(input: unknown) {
     return errorResponse("Не удалось обработать назначение. Повторите позже.", null);
   }
   const userIds = [...new Set(parsed.data.userIds)];
-  const users = await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, role: true, enrollment: { where: { courseId: course.id }, select: { status: true } } } });
+  const users = await prisma.user.findMany({ where: { id: { in: userIds }, organizationMemberships: { some: { organizationId: course.organizationId, role: "STUDENT" } } }, select: { id: true, role: true, enrollment: { where: { courseId: course.id }, select: { status: true } } } });
   const eligible = users.filter((user) => user.role !== "admin" && user.role !== "teacher");
   const dueAt = parsed.data.dueAt === undefined ? undefined : parsed.data.dueAt ? new Date(parsed.data.dueAt) : null;
   await prisma.$transaction(async (tx) => {
@@ -291,6 +302,13 @@ export async function acceptCourseInvitation(token: string) {
   const result = await prisma.$transaction(async (tx) => {
     const claimed = await tx.courseInvitation.updateMany({ where: { id: invitation.id, acceptedAt: null, expiresAt: { gt: new Date() } }, data: { acceptedAt: new Date() } });
     if (!claimed.count) return false;
+    const course = await tx.course.findUnique({ where: { id: invitation.courseId }, select: { organizationId: true } });
+    if (!course) throw new Error("Invited course no longer exists");
+    await tx.organizationMembership.upsert({
+      where: { organizationId_userId: { organizationId: course.organizationId, userId: session.user.id } },
+      create: { organizationId: course.organizationId, userId: session.user.id, role: "STUDENT" },
+      update: {},
+    });
     await tx.enrollment.upsert({ where: { userId_courseId: { userId: session.user.id, courseId: invitation.courseId } }, create: { userId: session.user.id, courseId: invitation.courseId, amount: 0, status: "Active", accessMode: invitation.accessMode, dueAt: invitation.dueAt }, update: { status: "Active", accessMode: invitation.accessMode, dueAt: invitation.dueAt } });
     await tx.studentNotification.upsert({ where: { userId_courseId_type: { userId: session.user.id, courseId: invitation.courseId, type: "COURSE_ASSIGNED" } }, create: { userId: session.user.id, courseId: invitation.courseId, type: "COURSE_ASSIGNED", title: "Вам назначен курс", body: "Новый курс доступен в личном кабинете." }, update: { readAt: null } });
     return true;
@@ -303,8 +321,16 @@ export async function cancelEnrollment(input: unknown) {
   const parsed = z.object({ courseId: z.string().min(1), userId: z.string().min(1) }).safeParse(input);
   if (!parsed.success) return errorResponse("Некорректное назначение", null);
   const { course } = await requireCourseTeacher(parsed.data.courseId);
-  const changed = await prisma.enrollment.updateMany({ where: { courseId: course.id, userId: parsed.data.userId, status: "Active" }, data: { status: "Cancelled" } });
-  if (changed.count) await prisma.studentNotification.deleteMany({ where: { userId: parsed.data.userId, courseId: course.id } });
+  const target = await prisma.user.findUnique({ where: { id: parsed.data.userId }, select: { email: true } });
+  if (!target) return errorResponse("Ученик не найден", null);
+  const changed = await prisma.$transaction(async (tx) => {
+    const result = await tx.enrollment.updateMany({ where: { courseId: course.id, userId: parsed.data.userId, status: "Active" }, data: { status: "Cancelled" } });
+    if (result.count) {
+      await tx.studentNotification.deleteMany({ where: { userId: parsed.data.userId, courseId: course.id } });
+      await tx.courseInvitation.updateMany({ where: { courseId: course.id, email: { equals: target.email, mode: "insensitive" }, acceptedAt: null, expiresAt: { gt: new Date() } }, data: { expiresAt: new Date() } });
+    }
+    return result;
+  });
   revalidatePath(`/teacher/courses/${course.id}`); revalidatePath("/dashboard");
   return changed.count ? successResponse("Доступ ученика отменён", null) : errorResponse("Активное назначение не найдено", null);
 }
@@ -324,9 +350,7 @@ export async function submitReview(input: unknown) {
   const parsed = z.object({ codeSubmissionId: z.string().optional(), quizAttemptId: z.string().optional(), score: z.number().int().min(0).max(100), comment: z.string().trim().min(1).max(2000) }).refine((v) => Boolean(v.codeSubmissionId) !== Boolean(v.quizAttemptId)).safeParse(input);
   if (!parsed.success) return errorResponse("Укажите одну работу, оценку 0–100 и комментарий", null);
   const session = await requireTeacher();
-  const allowedCourseIds = session.user.role === "admin"
-    ? null
-    : (await prisma.courseInstructor.findMany({ where: { userId: session.user.id }, select: { courseId: true } })).map((row) => row.courseId);
+  const allowedCourseIds = await getManagedCourseIds(session.user.id, session.user.role);
   const scope = allowedCourseIds ? { lessonCell: { lesson: { chapter: { courseId: { in: allowedCourseIds } } } } } : {};
   const target = parsed.data.codeSubmissionId
     ? await prisma.codeSubmission.findFirst({ where: { id: parsed.data.codeSubmissionId, ...scope }, select: { id: true, lessonCell: { select: { lesson: { select: { chapter: { select: { courseId: true } } } } } } } })
@@ -340,26 +364,35 @@ export async function submitReview(input: unknown) {
 }
 
 export async function assignTeacherToCourse(input: unknown) {
-  const session = await requireTeacher();
-  if (session.user.role !== "admin") return errorResponse("Только администратор назначает преподавателей", null);
   const parsed = z.object({ courseId: z.string().min(1), userId: z.string().min(1) }).safeParse(input);
   if (!parsed.success) return errorResponse("Некорректные данные", null);
-  const course = await prisma.course.findUnique({ where: { id: parsed.data.courseId }, select: { id: true } });
-  const teacher = await prisma.user.findUnique({ where: { id: parsed.data.userId }, select: { id: true, role: true } });
+  const course = await prisma.course.findUnique({ where: { id: parsed.data.courseId }, select: { id: true, organizationId: true } });
   if (!course) return errorResponse("Курс не найден", null);
+  await requireOrganizationRole(course.organizationId, ["OWNER", "ADMIN"]);
+  const teacher = await prisma.user.findUnique({ where: { id: parsed.data.userId }, select: { id: true, role: true } });
   if (!teacher || teacher.role === "admin") return errorResponse("Выберите обычный пользовательский аккаунт", null);
   await prisma.$transaction(async (tx) => {
     await tx.user.update({ where: { id: teacher.id }, data: { role: "teacher" } });
+    const membership = await tx.organizationMembership.findUnique({
+      where: { organizationId_userId: { organizationId: course.organizationId, userId: teacher.id } },
+      select: { role: true },
+    });
+    await tx.organizationMembership.upsert({
+      where: { organizationId_userId: { organizationId: course.organizationId, userId: teacher.id } },
+      create: { organizationId: course.organizationId, userId: teacher.id, role: "TEACHER" },
+      update: { role: roleAfterTeacherAssignment(membership?.role) },
+    });
     await tx.courseInstructor.upsert({ where: { courseId_userId: { courseId: course.id, userId: teacher.id } }, create: { courseId: course.id, userId: teacher.id }, update: {} });
   });
   revalidatePath("/teacher"); revalidatePath(`/teacher/courses/${course.id}`); return successResponse("Преподаватель назначен", null);
 }
 
 export async function removeTeacherFromCourse(input: unknown) {
-  const session = await requireTeacher();
-  if (session.user.role !== "admin") return errorResponse("Только администратор управляет преподавателями", null);
   const parsed = z.object({ courseId: z.string().min(1), userId: z.string().min(1) }).safeParse(input);
   if (!parsed.success) return errorResponse("Некорректные данные", null);
+  const course = await prisma.course.findUnique({ where: { id: parsed.data.courseId }, select: { organizationId: true } });
+  if (!course) return errorResponse("Курс не найден", null);
+  await requireOrganizationRole(course.organizationId, ["OWNER", "ADMIN"]);
   const removed = await prisma.courseInstructor.deleteMany({ where: { courseId: parsed.data.courseId, userId: parsed.data.userId } });
   revalidatePath("/teacher"); revalidatePath(`/teacher/courses/${parsed.data.courseId}`);
   return removed.count ? successResponse("Доступ преподавателя к курсу снят", null) : errorResponse("Назначение не найдено", null);

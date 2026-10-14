@@ -1,0 +1,105 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const test = require("node:test");
+const ts = require("typescript");
+
+function loadOrganizationActions(mocks) {
+  const filename = path.join(__dirname, "../app/data/organization/actions.ts");
+  const source = fs.readFileSync(filename, "utf8");
+  const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
+  const testModule = { exports: {} };
+  new Function("require", "module", "exports", js)((name) => {
+    if (Object.hasOwn(mocks, name)) return mocks[name];
+    if (name === "@/lib/organization/access-policy") {
+      const policySource = fs.readFileSync(path.join(__dirname, "../lib/organization/access-policy.ts"), "utf8");
+      const policyJs = ts.transpileModule(policySource, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+      const policyModule = { exports: {} };
+      new Function("module", "exports", policyJs)(policyModule, policyModule.exports);
+      return policyModule.exports;
+    }
+    if (name === "@/lib/responses") return {
+      errorResponse: (message, data) => ({ status: "error", message, data }),
+      successResponse: (message, data) => ({ status: "success", message, data }),
+    };
+    if (name === "@/app/data/organization/authorization") return {
+      requireOrganizationRole: async () => ({ session: { user: { id: "owner", role: "user" } }, membership: { role: "OWNER" } }),
+    };
+    if (name === "./authorization") return {
+      requireOrganizationRole: async () => ({ session: { user: { id: "owner", role: "user" } }, membership: { role: "OWNER" } }),
+    };
+    if (name === "@/lib/formatSlug") return { deriveCourseSlug: (value) => value.toLowerCase().replaceAll(" ", "-") };
+    if (name === "@/lib/env") return { env: { BETTER_AUTH_URL: "https://school.example.test" } };
+    if (name === "next/cache") return { revalidatePath() {} };
+    if (name === "server-only") return {};
+    return require(name);
+  }, testModule, testModule.exports);
+  return testModule.exports;
+}
+
+test("removing any school role cancels stale enrollments and expires pending school/course invites transactionally", async () => {
+  for (const role of ["STUDENT", "TEACHER", "ADMIN"]) {
+    const events = [];
+    const prisma = {
+      organizationMembership: {
+        findUnique: async () => ({ role, user: { email: "Learner@Example.test" } }),
+      },
+      $transaction: async (callback) => callback({
+        course: { findMany: async () => [{ id: "course-a" }, { id: "course-b" }] },
+        enrollment: { updateMany: async (query) => { events.push(["cancel-enrollment", query]); return { count: 2 }; } },
+        studentNotification: { deleteMany: async (query) => { events.push(["delete-notifications", query]); } },
+        courseInvitation: { updateMany: async (query) => { events.push(["expire-invites", query]); } },
+        organizationInvitation: { updateMany: async (query) => { events.push(["expire-school-invites", query]); } },
+        organizationMembership: { delete: async (query) => { events.push(["remove-membership", query]); } },
+        courseInstructor: { deleteMany: async (query) => { events.push(["remove-teacher-assignment", query]); } },
+      }),
+    };
+    const actions = loadOrganizationActions({
+      "@/lib/prisma": prisma,
+      "@/app/data/user/require-user": { requireUser: async () => ({ user: { id: "owner", role: "user" } }) },
+    });
+    const result = await actions.removeOrganizationMember({ organizationId: "school-a", userId: "student-a" });
+    assert.equal(result.status, "success", role);
+    const eventsByName = Object.fromEntries(events);
+    assert.deepEqual(events.map(([event]) => event), role === "TEACHER"
+      ? ["cancel-enrollment", "delete-notifications", "expire-invites", "expire-school-invites", "remove-teacher-assignment", "remove-membership"]
+      : ["cancel-enrollment", "delete-notifications", "expire-invites", "expire-school-invites", "remove-membership"]);
+    assert.deepEqual(eventsByName["cancel-enrollment"].where, { userId: "student-a", courseId: { in: ["course-a", "course-b"] }, status: "Active" });
+    assert.equal(eventsByName["expire-invites"].where.course.organizationId, "school-a");
+    assert.deepEqual(eventsByName["expire-invites"].where.email, { equals: "Learner@Example.test", mode: "insensitive" });
+    assert.equal(eventsByName["expire-invites"].where.acceptedAt, null);
+    assert.equal(eventsByName["expire-school-invites"].where.organizationId, "school-a");
+    assert.deepEqual(eventsByName["expire-school-invites"].where.email, { equals: "Learner@Example.test", mode: "insensitive" });
+  }
+});
+
+test("unverified school invitation acceptance does not read or claim an invitation", async () => {
+  let invitationReads = 0;
+  let transactions = 0;
+  const actions = loadOrganizationActions({
+    "@/lib/prisma": {
+      organizationInvitation: { findUnique: async () => { invitationReads++; return null; } },
+      $transaction: async () => { transactions++; },
+    },
+    "@/app/data/user/require-user": { requireUser: async () => ({ user: { id: "oauth-user", role: "user", email: "school-admin@example.test", emailVerified: false } }) },
+  });
+  const result = await actions.acceptOrganizationInvitation("a".repeat(40));
+  assert.equal(result.status, "error");
+  assert.equal(invitationReads, 0);
+  assert.equal(transactions, 0);
+});
+
+test("an expired school invitation cannot recreate membership after school removal", async () => {
+  let transactions = 0;
+  const actions = loadOrganizationActions({
+    "@/lib/prisma": {
+      organizationInvitation: { findUnique: async () => ({ id: "invite-a", organizationId: "school-a", email: "learner@example.test", role: "STUDENT", acceptedAt: null, expiresAt: new Date(Date.now() - 60_000) }) },
+      $transaction: async () => { transactions++; },
+    },
+    "@/app/data/user/require-user": { requireUser: async () => ({ user: { id: "learner-a", role: "user", email: "learner@example.test", emailVerified: true } }) },
+  });
+  const result = await actions.acceptOrganizationInvitation("b".repeat(40));
+  assert.equal(result.status, "error");
+  assert.equal(transactions, 0);
+});

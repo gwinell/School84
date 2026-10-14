@@ -38,6 +38,8 @@ model User {
   wishlistItems      WishlistItem[]
   certificates       Certificate[]
   instructorCourses  CourseInstructor[]
+  organizationMemberships OrganizationMembership[]
+  sentOrganizationInvitations OrganizationInvitation[] @relation("OrganizationInvitationCreator")
   quizAttempts       QuizAttempt[]
   feedbackGiven      SubmissionFeedback[] @relation("FeedbackReviewer")
   learningCursors    LearningCursor[]
@@ -194,8 +196,11 @@ model Course {
   duration   Int // duration in minutes
   level      CourseLevel @default(BEGINNER)
 
-  slug   String       @unique
+  slug   String
   status CourseStatus @default(DRAFT)
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -217,7 +222,62 @@ model Course {
 
   stripePriceId String? @unique
 
-  @@index([createdAt])
+  @@unique([organizationId, slug])
+  @@index([organizationId, createdAt])
+}
+
+enum OrganizationRole {
+  OWNER
+  ADMIN
+  TEACHER
+  STUDENT
+}
+
+model Organization {
+  id           String   @id @default(cuid())
+  name         String
+  slug         String   @unique
+  logoUrl      String?
+  primaryColor String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  memberships OrganizationMembership[]
+  invitations OrganizationInvitation[]
+  courses     Course[]
+
+  @@map("organization")
+}
+
+model OrganizationMembership {
+  organizationId String
+  userId         String
+  role           OrganizationRole @default(STUDENT)
+  createdAt      DateTime @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([organizationId, userId])
+  @@index([userId, role])
+  @@map("organization_membership")
+}
+
+model OrganizationInvitation {
+  id             String   @id @default(cuid())
+  organizationId String
+  email          String
+  role           OrganizationRole
+  tokenHash      String   @unique
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  createdAt      DateTime @default(now())
+  createdById    String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy      User @relation("OrganizationInvitationCreator", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, email])
+  @@index([expiresAt])
+  @@map("organization_invitation")
 }
 
 model Category {

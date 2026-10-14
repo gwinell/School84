@@ -69,8 +69,10 @@ export async function updateCourse(courseId: string, values: CourseSchemaType) {
 
     const { categories: categoryNames, ...courseFields } = validatedData.data;
 
+    const currentCourse = await prisma.course.findUnique({ where: { id: courseId }, select: { organizationId: true } });
+    if (!currentCourse) return errorResponse("Курс не найден", null);
     const slugTaken = await prisma.course.findFirst({
-      where: { slug: courseFields.slug, NOT: { id: courseId } },
+      where: { organizationId: currentCourse.organizationId, slug: courseFields.slug, NOT: { id: courseId } },
       select: { id: true },
     });
     if (slugTaken) {

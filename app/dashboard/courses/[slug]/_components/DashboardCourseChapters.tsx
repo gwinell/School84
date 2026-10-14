@@ -16,17 +16,20 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
+import { dashboardCourseHref } from "@/lib/organization/course-links";
 
 import type { tCourseForLearningChapter } from "@/app/data/user/get-course-for-learning";
 
 interface DashboardCourseChaptersProps {
   chapters: tCourseForLearningChapter[];
   courseSlug: string;
+  organizationSlug: string;
 }
 
 export function DashboardCourseChapters({
   chapters,
   courseSlug,
+  organizationSlug,
 }: DashboardCourseChaptersProps) {
   const totalLessons = chapters.reduce(
     (acc, chapter) => acc + chapter.lessons.length,
@@ -51,6 +54,7 @@ export function DashboardCourseChapters({
             key={chapter.id}
             chapter={chapter}
             courseSlug={courseSlug}
+            organizationSlug={organizationSlug}
           />
         ))}
       </div>
@@ -61,9 +65,10 @@ export function DashboardCourseChapters({
 interface ChapterSectionProps {
   chapter: tCourseForLearningChapter;
   courseSlug: string;
+  organizationSlug: string;
 }
 
-function ChapterSection({ chapter, courseSlug }: ChapterSectionProps) {
+function ChapterSection({ chapter, courseSlug, organizationSlug }: ChapterSectionProps) {
   const [open, setOpen] = useState(true);
   const lessonCount = chapter.lessons.length;
   const lessonWord = lessonCount === 1 ? "lesson" : "lessons";
@@ -103,7 +108,7 @@ function ChapterSection({ chapter, courseSlug }: ChapterSectionProps) {
                   key={lesson.id}
                   lesson={lesson}
                   index={idx}
-                  href={`/dashboard/courses/${courseSlug}/${lesson.id}`}
+                  href={dashboardCourseHref(organizationSlug, courseSlug, lesson.id)}
                 />
               ))}
             </ul>

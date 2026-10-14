@@ -38,7 +38,7 @@ export async function getLessonQuizForUser({
       chapter: {
         select: {
           courseId: true,
-          course: { select: { status: true } },
+      course: { select: { status: true, organizationId: true } },
         },
       },
     },
@@ -49,6 +49,10 @@ export async function getLessonQuizForUser({
   }
 
   if (session.user.role !== "admin") {
+    const membership = await prisma.organizationMembership.findUnique({
+      where: { organizationId_userId: { organizationId: lesson.chapter.course.organizationId, userId: session.user.id } },
+      select: { role: true },
+    });
     const enrollment = await prisma.enrollment.findUnique({
       where: {
         userId_courseId: {
@@ -59,7 +63,7 @@ export async function getLessonQuizForUser({
       select: { status: true, accessMode: true },
     });
 
-    if (!enrollment || enrollment.status !== "Active") {
+    if (membership?.role !== "STUDENT" || !enrollment || enrollment.status !== "Active") {
       return null;
     }
     if (enrollment.accessMode === "SEQUENTIAL" && !(await canAccessAssignedLesson({

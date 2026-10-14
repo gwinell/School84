@@ -8,12 +8,14 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { tryCatch } from "@/hooks/try-catch";
+import { publicCourseHref, dashboardCourseHref } from "@/lib/organization/course-links";
 
 import { enrollInCourseAction } from "../actions";
 
 interface EnrollmentButtonProps {
   courseId: string;
   slug: string;
+  organizationSlug: string;
   isEnrolled: boolean;
   isSignedIn: boolean;
   priceCents: number;
@@ -22,6 +24,7 @@ interface EnrollmentButtonProps {
 export function EnrollmentButton({
   courseId,
   slug,
+  organizationSlug,
   isEnrolled,
   isSignedIn,
   priceCents,
@@ -37,7 +40,7 @@ export function EnrollmentButton({
         className="w-full"
         size="lg"
         nativeButton={false}
-        render={<Link href={`/login?redirect=/courses/${slug}`} />}
+        render={<Link href={`/login?redirect=${encodeURIComponent(publicCourseHref(organizationSlug, slug))}`} />}
       >
         Sign in to enroll
       </Button>
@@ -50,7 +53,7 @@ export function EnrollmentButton({
         className="w-full"
         size="lg"
         nativeButton={false}
-        render={<Link href={`/dashboard/courses/${slug}`} />}
+        render={<Link href={dashboardCourseHref(organizationSlug, slug)} />}
       >
         <PlayCircleIcon className="size-4" />
         Start watching course

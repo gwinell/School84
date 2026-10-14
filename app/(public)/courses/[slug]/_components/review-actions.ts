@@ -11,6 +11,7 @@ import { errorResponse, successResponse } from "@/lib/responses";
 import { type tApiResponse } from "@/types/api";
 import { type tCourseReviewView } from "@/types/course-reviews";
 import { requireUser } from "@/app/data/user/require-user";
+import { getCourseLearnerAccess } from "@/app/data/user/course-learner-access";
 
 const aj = arcjet.withRule(
   fixedWindow({
@@ -113,24 +114,16 @@ export async function submitReviewAction({
 
     const course = await prisma.course.findUnique({
       where: { id: courseId },
-      select: { id: true, slug: true, status: true },
+      select: { id: true, slug: true, status: true, organizationId: true },
     });
 
     if (!course || course.status !== "PUBLISHED") {
       return errorResponse("Course not available for review", null);
     }
 
-    const enrollment = await prisma.enrollment.findUnique({
-      where: {
-        userId_courseId: {
-          userId: session.user.id,
-          courseId: course.id,
-        },
-      },
-      select: { status: true },
-    });
+    const enrollment = await getCourseLearnerAccess({ userId: session.user.id, userRole: session.user.role, courseId: course.id, organizationId: course.organizationId });
 
-    if (enrollment?.status !== "Active") {
+    if (!enrollment) {
       return errorResponse(
         "You need an active enrollment to review this course",
         null,
@@ -208,7 +201,7 @@ export async function editReviewAction({
         id: true,
         userId: true,
         courseId: true,
-        course: { select: { slug: true, status: true } },
+        course: { select: { slug: true, status: true, organizationId: true } },
       },
     });
 
@@ -224,17 +217,9 @@ export async function editReviewAction({
       return errorResponse("Course not available", null);
     }
 
-    const enrollment = await prisma.enrollment.findUnique({
-      where: {
-        userId_courseId: {
-          userId: session.user.id,
-          courseId: review.courseId,
-        },
-      },
-      select: { status: true },
-    });
+    const enrollment = await getCourseLearnerAccess({ userId: session.user.id, userRole: session.user.role, courseId: review.courseId, organizationId: review.course.organizationId });
 
-    if (enrollment?.status !== "Active") {
+    if (!enrollment) {
       return errorResponse(
         "Editing is disabled because your enrollment is no longer active",
         null,

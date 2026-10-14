@@ -32,6 +32,6 @@ export async function getMyNotifications() {
   }
   return prisma.studentNotification.findMany({
     where: { userId: session.user.id }, orderBy: { createdAt: "desc" }, take: 50,
-    select: { id: true, type: true, title: true, body: true, readAt: true, createdAt: true, courseId: true, course: { select: { title: true, slug: true } } },
+    select: { id: true, type: true, title: true, body: true, readAt: true, createdAt: true, courseId: true, course: { select: { title: true, slug: true, organization: { select: { slug: true } } } } },
   });
 }

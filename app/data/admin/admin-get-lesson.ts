@@ -3,6 +3,7 @@ import "server-only";
 import prisma from "@/lib/prisma";
 import { getDownloadUrl } from "@/lib/s3/get-download-url";
 import { requireTeacher } from "@/app/data/teacher/require-teacher";
+import { getManagedCourseIds } from "@/app/data/teacher/get-managed-course-ids";
 import { notFound } from "next/navigation";
 
 async function signInlineImages(textContent: string | null) {
@@ -53,9 +54,7 @@ type TAdminGetLessonProps = {
 
 export async function adminGetLesson({ id }: TAdminGetLessonProps) {
   const session = await requireTeacher();
-  const managedCourseIds = session.user.role === "admin"
-    ? null
-    : (await prisma.courseInstructor.findMany({ where: { userId: session.user.id }, select: { courseId: true } })).map((row) => row.courseId);
+  const managedCourseIds = await getManagedCourseIds(session.user.id, session.user.role);
   const scopedWhere = { id, ...(managedCourseIds ? { chapter: { courseId: { in: managedCourseIds } } } : {}) };
 
   // Preserve SchoolSphere lessons created before the cell editor existed.

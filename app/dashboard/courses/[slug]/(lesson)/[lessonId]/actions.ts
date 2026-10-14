@@ -10,6 +10,7 @@ import prisma from "@/lib/prisma";
 import { errorResponse, successResponse } from "@/lib/responses";
 import { type tApiResponse } from "@/types/api";
 import { requireUser } from "@/app/data/user/require-user";
+import { getCourseLearnerAccess } from "@/app/data/user/course-learner-access";
 
 const aj = arcjet.withRule(
   fixedWindow({
@@ -50,7 +51,7 @@ export async function setLessonCompletionAction({
         chapter: {
           select: {
             course: {
-              select: { id: true, slug: true, status: true },
+              select: { id: true, slug: true, status: true, organizationId: true },
             },
           },
         },
@@ -63,17 +64,8 @@ export async function setLessonCompletionAction({
 
     const { id: courseId, slug } = lesson.chapter.course;
 
-    const enrollment = await prisma.enrollment.findUnique({
-      where: {
-        userId_courseId: {
-          userId: session.user.id,
-          courseId,
-        },
-      },
-      select: { status: true, accessMode: true },
-    });
-
-    if (!enrollment || enrollment.status !== "Active") {
+    const enrollment = await getCourseLearnerAccess({ userId: session.user.id, userRole: session.user.role, courseId, organizationId: lesson.chapter.course.organizationId });
+    if (!enrollment) {
       return errorResponse("You are not enrolled in this course", null);
     }
 

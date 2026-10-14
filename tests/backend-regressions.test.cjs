@@ -20,6 +20,17 @@ function load(file, mocks = {}, globals = {}) {
       if (name === 'next/cache') return { revalidatePath() {} };
       if (name === 'next/navigation') return { notFound() { throw Error('NOT_FOUND'); }, redirect() { throw Error('REDIRECT'); } };
       if (name === '@/app/data/user/require-user' || name === './require-user') return { requireUser: async () => ({ user: { id: 'student', role: 'user' } }) };
+      if (name === '@/app/data/user/course-learner-access') {
+        const db = mocks['@/lib/prisma'];
+        return { getCourseLearnerAccess: async ({ userId, userRole, organizationId, courseId }) => {
+          if (userRole === 'admin') return { status: 'Active', accessMode: 'ALL_AT_ONCE' };
+          const [membership, enrollment] = await Promise.all([
+            db.organizationMembership?.findUnique ? db.organizationMembership.findUnique({ where: { organizationId_userId: { organizationId, userId } } }) : { role: 'STUDENT' },
+            db.enrollment?.findUnique ? db.enrollment.findUnique({ where: { userId_courseId: { userId, courseId } } }) : null,
+          ]);
+          return membership?.role === 'STUDENT' && enrollment?.status === 'Active' ? enrollment : null;
+        } };
+      }
       if (name === '@/lib/responses') return { errorResponse: (message, data) => ({ status: 'error', message, data }), successResponse: (message, data) => ({ status: 'success', message, data }) };
       if (name === '@/lib/arcjet') return { __esModule: true, default: { withRule() { return this; }, protect: async () => ({ isDenied: () => false }) }, fixedWindow: () => ({}) };
       if (name === '@arcjet/next') return { request: async () => ({}) };
@@ -97,7 +108,7 @@ test('reading course never converts stale lesson completed flags to passed tasks
   const lessons = [1, 2].map((n) => ({ id: `lesson${n}`, title: `Lesson ${n}`, description: 'Private content', videoKey: `video${n}`, position: n,
     lessonProgress: [{ completed: true }], cells: [{ id: `cell${n}`, type: 'CODE_TASK', position: 1, title: 'Task', textContent: null, taskPrompt: 'secret', starterCode: 'secret', examples: [], submissions: [], quiz: null }] }));
   const db = {
-    course: { findUnique: async () => ({ id: 'course', title: 'Course', slug: 'course', smallDesc: '', fileKey: 'cover', status: 'PUBLISHED', courseChapters: [{ id: 'chapter', title: 'Chapter', position: 1, lessons }] }) },
+    course: { findMany: async () => [{ id: 'course', title: 'Course', slug: 'course', organization: { id: 'org', name: 'School', slug: 'school', logoUrl: null, primaryColor: null }, smallDesc: '', fileKey: 'cover', status: 'PUBLISHED', courseChapters: [{ id: 'chapter', title: 'Chapter', position: 1, lessons }] }] },
     enrollment: { findUnique: async () => ({ status: 'Active', accessMode: 'SEQUENTIAL' }) },
     learningCursor: { findUnique: async () => ({ lessonId: 'lesson2', cellId: 'cell2' }) },
     lessonCellProgress: { createMany: async ({ data }) => initialRows.push(...data), updateMany: async () => { updates++; }, findMany: async () => [] },
@@ -130,7 +141,7 @@ test('certificate rejects stale lesson completion when current cells remain unpa
 
 test('legacy quiz fetch enforces sequential lesson access', async () => {
   let reads = 0;
-  const db = { lesson: { findUnique: async () => ({ chapter: { courseId: 'course', course: { status: 'PUBLISHED' } } }) }, enrollment: { findUnique: async () => ({ status: 'Active', accessMode: 'SEQUENTIAL' }) }, quiz: { findUnique: async () => { reads++; return null; } } };
+  const db = { lesson: { findUnique: async () => ({ chapter: { courseId: 'course', course: { status: 'PUBLISHED', organizationId: 'org' } } }) }, organizationMembership: { findUnique: async () => ({ userId: 'student' }) }, enrollment: { findUnique: async () => ({ status: 'Active', accessMode: 'SEQUENTIAL' }) }, quiz: { findUnique: async () => { reads++; return null; } } };
   const subject = load('app/data/user/get-lesson-quiz.ts', { '@/lib/prisma': db, '@/lib/course-access': { canAccessAssignedLesson: async () => false } });
   assert.equal(await subject.getLessonQuizForUser({ lessonId: 'locked' }), null); assert.equal(reads, 0);
 });
@@ -234,8 +245,8 @@ function discussion({ published = true, unlocked = true, mode = 'SEQUENTIAL' } =
   let writes = 0; let reads = 0;
   const db = {
     lesson: {
-      findUnique: async () => ({ chapter: { course: { id: 'course', slug: 'course' } } }),
-      findFirst: async () => published ? { id: 'lesson' } : null,
+      findUnique: async () => ({ id: 'lesson', chapter: { course: { id: 'course', slug: 'course', organizationId: 'school' } } }),
+      findFirst: async () => published ? { id: 'lesson', chapter: { course: { organizationId: 'school' } } } : null,
     },
     enrollment: { findUnique: async () => ({ status: 'Active', accessMode: mode }) },
     lessonComment: {

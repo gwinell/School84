@@ -10,6 +10,7 @@ export type tEnrolledCourse = {
   enrollmentId: string;
   id: string;
   slug: string;
+  organizationSlug: string;
   title: string;
   smallDesc: string;
   imageUrl: string | null;
@@ -30,6 +31,7 @@ export async function getMyEnrolledCourses(): Promise<tEnrolledCourse[]> {
     where: {
       userId: session.user.id,
       status: "Active",
+      course: { organization: { memberships: { some: { userId: session.user.id, role: "STUDENT" } } } },
     },
     orderBy: { updatedAt: "desc" },
     select: {
@@ -39,6 +41,7 @@ export async function getMyEnrolledCourses(): Promise<tEnrolledCourse[]> {
         select: {
           id: true,
           slug: true,
+          organization: { select: { slug: true } },
           title: true,
           smallDesc: true,
           fileKey: true,
@@ -95,6 +98,7 @@ export async function getMyEnrolledCourses(): Promise<tEnrolledCourse[]> {
       enrollmentId: enrollment.id,
       id: enrollment.course.id,
       slug: enrollment.course.slug,
+      organizationSlug: enrollment.course.organization.slug,
       title: enrollment.course.title,
       smallDesc: enrollment.course.smallDesc,
       imageUrl: imageUrls[i],

@@ -15,14 +15,17 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Progress, ProgressLabel, ProgressValue } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import type { tCourseForLearningChapter } from "@/app/data/user/get-course-for-learning";
+import { dashboardCourseHref } from "@/lib/organization/course-links";
 
 export function LessonChaptersList({
   chapters,
   courseSlug,
+  organizationSlug,
   onNavigate,
 }: {
   chapters: tCourseForLearningChapter[];
   courseSlug: string;
+  organizationSlug: string;
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
@@ -53,6 +56,7 @@ export function LessonChaptersList({
               chapter={chapter}
               index={index}
               courseSlug={courseSlug}
+              organizationSlug={organizationSlug}
               pathname={pathname}
               onNavigate={onNavigate}
             />
@@ -67,12 +71,14 @@ function ChapterItem({
   chapter,
   index,
   courseSlug,
+  organizationSlug,
   pathname,
   onNavigate,
 }: {
   chapter: tCourseForLearningChapter;
   index: number;
   courseSlug: string;
+  organizationSlug: string;
   pathname: string;
   onNavigate?: () => void;
 }) {
@@ -106,7 +112,7 @@ function ChapterItem({
                       <span className="line-clamp-2 flex-1 leading-snug">{lesson.title}</span>
                     </div>
                   ) : <Link
-                    href={`/dashboard/courses/${courseSlug}/${lesson.id}`}
+                    href={dashboardCourseHref(organizationSlug, courseSlug, lesson.id)}
                     onClick={onNavigate}
                     aria-current={active ? "page" : undefined}
                     className={cn(

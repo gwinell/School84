@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { requireUser } from "@/app/data/user/require-user";
+import { getCourseLearnerAccess } from "@/app/data/user/course-learner-access";
 import { canAccessAssignedLesson } from "@/lib/course-access";
 import prisma from "@/lib/prisma";
 import { errorResponse, successResponse } from "@/lib/responses";
@@ -35,7 +36,7 @@ export async function passLessonCellAction({
         select: {
           chapter: {
             select: {
-              course: { select: { id: true, slug: true, status: true } },
+              course: { select: { id: true, slug: true, status: true, organizationId: true } },
             },
           },
         },
@@ -51,16 +52,9 @@ export async function passLessonCellAction({
   }
 
   const course = cell.lesson.chapter.course;
+  const enrollment = await getCourseLearnerAccess({ userId: session.user.id, userRole: session.user.role, courseId: course.id, organizationId: course.organizationId });
+  if (!enrollment) return errorResponse("You are not assigned to this course", null);
   if (session.user.role !== "admin") {
-    const enrollment = await prisma.enrollment.findUnique({
-      where: {
-        userId_courseId: { userId: session.user.id, courseId: course.id },
-      },
-    select: { status: true, accessMode: true },
-    });
-    if (!enrollment || enrollment.status !== "Active") {
-      return errorResponse("You are not assigned to this course", null);
-    }
     if (
       enrollment.accessMode === "SEQUENTIAL" &&
       !(await canAccessAssignedLesson({

@@ -4,17 +4,20 @@ import { CheckIcon, Code2Icon, FileTextIcon, ListChecksIcon, LockKeyholeIcon } f
 import type { tCourseForLearningCell } from "@/app/data/user/get-course-for-learning";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { dashboardCourseHref } from "@/lib/organization/course-links";
 
 const typeLabels = { TEXT: "Конспект", CODE_TASK: "Задача", QUIZ: "Quiz" } as const;
 const typeIcons = { TEXT: FileTextIcon, CODE_TASK: Code2Icon, QUIZ: ListChecksIcon } as const;
 
 export function LessonCellStepper({
   courseSlug,
+  organizationSlug,
   lessonId,
   cells,
   activeCellId,
 }: {
   courseSlug: string;
+  organizationSlug: string;
   lessonId: string;
   cells: tCourseForLearningCell[];
   activeCellId: string;
@@ -52,7 +55,7 @@ export function LessonCellStepper({
           <Button
             key={cell.id}
             nativeButton={false}
-            render={<Link href={`/dashboard/courses/${courseSlug}/${lessonId}?cellId=${cell.id}`} />}
+            render={<Link href={`${dashboardCourseHref(organizationSlug, courseSlug, lessonId)}?cellId=${cell.id}`} />}
             variant="ghost"
             size="icon"
             className="size-10 shrink-0 p-0"

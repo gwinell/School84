@@ -11,15 +11,17 @@ import { LessonCellStepper } from "./_components/LessonCellStepper";
 import { LessonCellContent } from "./_components/LessonCellContent";
 import { PassCellButton } from "./_components/PassCellButton";
 import { LearningCursorMarker } from "./_components/LearningCursorMarker";
+import { dashboardCourseHref } from "@/lib/organization/course-links";
 
 interface PageParams {
-  params: Promise<{ slug: string; lessonId: string }>;
+  params: Promise<{ slug: string; lessonId: string; organizationSlug?: string }>;
   searchParams: Promise<{ cellId?: string }>;
 }
 
 export default async function LessonPlayerPage({ params, searchParams }: PageParams) {
-  const [{ slug, lessonId }, { cellId }] = await Promise.all([params, searchParams]);
-  const course = await getCourseForLearning({ slug, currentLessonId: lessonId });
+  const [{ slug, lessonId, organizationSlug }, { cellId }] = await Promise.all([params, searchParams]);
+  const course = await getCourseForLearning({ slug, organizationSlug, currentLessonId: lessonId });
+  const courseHref = dashboardCourseHref(course.organization.slug, slug);
 
   const lessons = course.courseChapters.flatMap((chapter) => chapter.lessons);
   const currentIndex = lessons.findIndex((lesson) => lesson.id === lessonId);
@@ -37,12 +39,12 @@ export default async function LessonPlayerPage({ params, searchParams }: PagePar
 
   if (!currentLesson.isUnlocked) {
     const firstUnlockedLesson = lessons.find((lesson) => lesson.isUnlocked);
-    if (!firstUnlockedLesson) redirect(`/dashboard/courses/${slug}`);
+    if (!firstUnlockedLesson) redirect(courseHref);
     const firstOpenCell = firstUnlockedLesson.cells.find((cell) => cell.status !== "LOCKED");
     redirect(
       firstOpenCell
-        ? `/dashboard/courses/${slug}/${firstUnlockedLesson.id}?cellId=${firstOpenCell.id}`
-        : `/dashboard/courses/${slug}/${firstUnlockedLesson.id}`,
+        ? `${dashboardCourseHref(course.organization.slug, slug, firstUnlockedLesson.id)}?cellId=${firstOpenCell.id}`
+        : dashboardCourseHref(course.organization.slug, slug, firstUnlockedLesson.id),
     );
   }
 
@@ -58,9 +60,9 @@ export default async function LessonPlayerPage({ params, searchParams }: PagePar
           [...currentLesson.cells].reverse().find((cell) => cell.status === "PASSED") ??
           firstUnlocked;
 
-    if (!active) redirect(`/dashboard/courses/${slug}`);
+    if (!active) redirect(courseHref);
     if (cellId && (!selected || selected.status === "LOCKED")) {
-      redirect(`/dashboard/courses/${slug}/${lessonId}?cellId=${active.id}`);
+      redirect(`${dashboardCourseHref(course.organization.slug, slug, lessonId)}?cellId=${active.id}`);
     }
 
     const quizAttempts = active.type === "QUIZ" ? await getMyQuizAttempts(active.id) : [];
@@ -77,6 +79,7 @@ export default async function LessonPlayerPage({ params, searchParams }: PagePar
 
         <LessonCellStepper
           courseSlug={slug}
+          organizationSlug={course.organization.slug}
           lessonId={lessonId}
           cells={currentLesson.cells}
           activeCellId={active.id}
@@ -111,6 +114,7 @@ export default async function LessonPlayerPage({ params, searchParams }: PagePar
         description={currentLesson.description}
         completed={currentLesson.completed}
         courseSlug={slug}
+        organizationSlug={course.organization.slug}
         prevLessonId={prevLessonId}
         nextLessonId={nextLessonId}
       />
