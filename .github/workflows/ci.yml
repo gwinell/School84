@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - "**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify application
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: postgresql://school84:ci-only-password@127.0.0.1:5432/school84?sslmode=disable
+      BETTER_AUTH_SECRET: ci-only-secret-not-for-deployment
+      BETTER_AUTH_URL: http://localhost:3001
+      GITHUB_CLIENT_ID: ci-only-github-client
+      GITHUB_CLIENT_SECRET: ci-only-github-secret
+      RESEND_API_KEY: re_ci_only
+      EMAIL_FROM: "School 84 CI <noreply@example.invalid>"
+      ARCJET_KEY: ci-only-arcjet-key
+      ARCJET_ENABLED: "false"
+      AUTH_EMAIL_MODE: console
+      DEMO_LOGIN_ENABLED: "false"
+      AWS_ACCESS_KEY_ID: ci-only-access-key
+      AWS_SECRET_ACCESS_KEY: ci-only-secret-key
+      AWS_ENDPOINT_URL_S3: https://storage.example.invalid
+      AWS_REGION: us-east-1
+      NEXT_PUBLIC_S3_BUCKET_NAME_IMAGES: school84-ci-only
+      PYTHON_RUNNER_URL: http://127.0.0.1:8787
+      PYTHON_RUNNER_TOKEN: ci-only-runner-token-with-more-than-24-chars
+      NEXT_TELEMETRY_DISABLED: "1"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Set up pnpm 11.25.0
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate Prisma schema
+        run: pnpm exec prisma validate
+
+      - name: Generate Prisma client
+        run: pnpm exec prisma generate
+
+      - name: Run application regressions
+        run: pnpm test
+
+      - name: Run Python runner regressions
+        run: pnpm test:runner
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build production application
+        run: pnpm build
