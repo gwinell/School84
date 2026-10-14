@@ -18,11 +18,15 @@ function load(file, mocks = {}, user = { id: 'removed-member', role: 'user' }) {
       if (name === 'server-only') return {};
       if (name === '@/app/data/user/require-user') return { requireUser: async () => ({ user }) };
       if (name === './require-user') return { requireUser: async () => ({ user }) };
+      if (name === '@/lib/course-access') return { canAccessAssignedLesson: async () => true };
       if (name === '@/lib/responses') return {
         errorResponse: (message, data) => ({ status: 'error', message, data }),
         successResponse: (message, data) => ({ status: 'success', message, data }),
       };
       if (name === 'next/cache') return { revalidatePath() {} };
+      if (name === 'next/navigation') return { notFound() { throw new Error('NOT_FOUND'); }, redirect(pathname) { throw new Error(`REDIRECT:${pathname}`); } };
+      if (name === '@/lib/arcjet') return { __esModule: true, default: { withRule() { return { protect: async () => ({ isDenied: () => false }) }; } }, fixedWindow: () => ({}) };
+      if (name === '@arcjet/next') return { request: async () => ({}) };
       return require(name);
     },
     console, Date, Map, Set, Promise, AbortSignal,
@@ -36,6 +40,9 @@ const progressFile = 'app/dashboard/courses/[slug]/(lesson)/[lessonId]/cell-prog
 const cursorFile = 'app/dashboard/courses/[slug]/(lesson)/[lessonId]/learning-cursor-actions.ts';
 const codeFile = 'app/dashboard/courses/[slug]/(lesson)/[lessonId]/code-submission-actions.ts';
 const attemptsFile = 'app/data/user/get-my-quiz-attempts.ts';
+const commentFile = 'app/dashboard/courses/[slug]/(lesson)/[lessonId]/_lib/comment-actions.ts';
+const lessonQuizFile = 'app/data/user/get-lesson-quiz.ts';
+const courseReaderFile = 'app/data/user/get-course-for-learning.ts';
 
 function revokedMembershipDb(role) {
   const calls = { writes: 0, runner: 0 };
@@ -111,4 +118,56 @@ test('quiz history without a cell filter is scoped to current student membership
   assert.equal(courseScope.organization.is.memberships.some.role, 'STUDENT');
   assert.equal(courseScope.enrollment.some.userId, 'removed-member');
   assert.equal(courseScope.enrollment.some.status, 'Active');
+});
+
+test('removed learner cannot edit or delete own comments while stale enrollment remains', async () => {
+  let writes = 0;
+  const prisma = {
+    organizationMembership: { findUnique: async () => null },
+    enrollment: { findUnique: async () => ({ status: 'Active', accessMode: 'ALL_AT_ONCE' }) },
+    lesson: { findFirst: async () => ({ id: 'lesson', chapter: { course: { organizationId: 'school' } } }) },
+    lessonComment: {
+      findUnique: async () => ({ id: 'comment', userId: 'removed-member', lessonId: 'lesson', lesson: { chapter: { course: { id: 'course', slug: 'course' } } } }),
+      update: async () => { writes++; },
+      delete: async () => { writes++; },
+    },
+  };
+  const access = load(helperFile, { '@/lib/prisma': prisma });
+  const subject = load(commentFile, {
+    '@/lib/prisma': prisma,
+    '@/app/data/user/course-learner-access': access,
+    '@/lib/course-access': { canAccessAssignedLesson: async () => true },
+    '@/app/data/user/get-lesson-comments': { getLessonComments: async () => ({ items: [] }) },
+    '@/app/data/user/get-lesson-replies': { getLessonReplies: async () => ({ items: [] }) },
+  }, { id: 'removed-member', role: 'user' });
+  assert.equal((await subject.editCommentAction({ commentId: 'comment', content: 'edited' })).status, 'error');
+  assert.equal((await subject.deleteCommentAction({ commentId: 'comment' })).status, 'error');
+  assert.equal(writes, 0);
+});
+
+test('teacher organization membership with stale enrollment cannot fetch learner quiz content', async () => {
+  let quizReads = 0;
+  const reader = load(lessonQuizFile, {
+    '@/lib/prisma': {
+      lesson: { findUnique: async () => ({ chapter: { courseId: 'course', course: { status: 'PUBLISHED', organizationId: 'school' } } }) },
+      organizationMembership: { findUnique: async () => ({ role: 'TEACHER' }) },
+      enrollment: { findUnique: async () => ({ status: 'Active', accessMode: 'ALL_AT_ONCE' }) },
+      quiz: { findUnique: async () => { quizReads++; return { id: 'quiz', questions: [] }; } },
+    },
+  }, { id: 'teacher', role: 'teacher' });
+  assert.equal(await reader.getLessonQuizForUser({ lessonId: 'lesson' }), null);
+  assert.equal(quizReads, 0);
+});
+
+test('course reader resolves only courses with current STUDENT membership', async () => {
+  let query;
+  const reader = load(courseReaderFile, {
+    '@/lib/prisma': { course: { findMany: async ({ where }) => { query = where; return []; } } },
+    '@/lib/s3/get-download-url': { getDownloadUrl: async () => null },
+    '@/lib/course-access': { getSequentiallyUnlockedLessonIds: () => new Set() },
+    '@/app/dashboard/_lib/resolve-learning-target': { resolveLearningTarget: () => ({ lessonId: null, cellId: null }) },
+  }, { id: 'teacher', role: 'teacher' });
+  await assert.rejects(reader.getCourseForLearning({ slug: 'course', organizationSlug: 'school' }), /NOT_FOUND/);
+  assert.equal(query.organization.memberships.some.userId, 'teacher');
+  assert.equal(query.organization.memberships.some.role, 'STUDENT');
 });
