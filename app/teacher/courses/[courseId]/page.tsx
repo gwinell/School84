@@ -4,11 +4,12 @@ import { ArrowLeftIcon, PencilIcon } from "lucide-react";
 import { requireTeacher } from "@/app/data/teacher/require-teacher";
 import { requireCourseTeacher } from "@/app/data/teacher/require-course-teacher";
 import { getAssignableTeachers, getCourseGradebook, getCourseInstructors, getCourseInvitations } from "@/app/data/teacher/get-course-gradebook";
-import { assignTeacherToCourse, bulkAssignStudents, cancelCourseInvitation, cancelEnrollment, inviteStudentToCourse, removeTeacherFromCourse, setEnrollmentDueDate, submitReview } from "@/app/admin/courses/[courseId]/assignments/actions";
+import { assignTeacherToCourse, cancelCourseInvitation, cancelEnrollment, removeTeacherFromCourse, setEnrollmentDueDate, submitReview } from "@/app/admin/courses/[courseId]/assignments/actions";
 import { CourseGradebook } from "../../_components/CourseGradebook";
 import { CourseInstructorsManager } from "../../_components/CourseInstructorsManager";
 import { CourseInvitationsList } from "../../_components/CourseInvitationsList";
-import { CourseRosterManager, type EnrollmentOptions, type RosterActionResult } from "../../_components/CourseRosterManager";
+import { CourseRosterManager } from "../../_components/CourseRosterManager";
+import { bulkAssignStudentsForRoster, inviteStudentToCourseForRoster } from "../../roster-actions";
 import { buttonVariants } from "@/components/ui/button";
 
 export default async function TeacherCoursePage({ params }: { params: Promise<{ courseId: string }> }) {
@@ -27,16 +28,6 @@ export default async function TeacherCoursePage({ params }: { params: Promise<{ 
   }));
   const now = new Date();
   const invitationRows = invitations.map((invitation) => ({ ...invitation, isExpired: invitation.expiresAt <= now }));
-
-  async function onInvite(input: EnrollmentOptions & { email: string }): Promise<RosterActionResult<{ inviteUrl: string | null; alreadyAssigned: boolean }>> {
-    const result = await inviteStudentToCourse(input);
-    return { ...result, data: result.data ?? undefined };
-  }
-
-  async function onBulkAssign(input: EnrollmentOptions & { emails: string[] }): Promise<RosterActionResult<{ created: number; alreadyAssigned: number; invalid: string[] }>> {
-    const result = await bulkAssignStudents(input);
-    return { ...result, data: result.data ?? undefined };
-  }
 
   return <div className="space-y-8">
     <Link href="/teacher" className={buttonVariants({ variant: "ghost", size: "sm" })}><ArrowLeftIcon />Все курсы</Link>
@@ -57,8 +48,8 @@ export default async function TeacherCoursePage({ params }: { params: Promise<{ 
     <CourseRosterManager
       courseId={courseId}
       enrollments={enrollments}
-      onInvite={onInvite}
-      onBulkAssign={onBulkAssign}
+      onInvite={inviteStudentToCourseForRoster}
+      onBulkAssign={bulkAssignStudentsForRoster}
       onCancel={cancelEnrollment}
       onSetDueDate={setEnrollmentDueDate}
     />
