@@ -104,7 +104,7 @@ export function CertificateView({
                 Certificate of Completion
               </p>
               <p className="text-sm text-muted-foreground">
-                KnowSphere verifies that
+                SchoolSphere verifies that
               </p>
             </div>
           </header>
@@ -136,11 +136,11 @@ export function CertificateView({
                 href={courseHref}
                 className="inline-block text-sm text-primary underline-offset-4 hover:underline"
               >
-                View course on KnowSphere
+                View course on SchoolSphere
               </Link>
             ) : (
               <p className="text-sm text-muted-foreground italic">
-                The original course is no longer available on KnowSphere.
+                The original course is no longer available on SchoolSphere.
               </p>
             )}
           </div>

@@ -4,7 +4,7 @@ import { WISHLIST_PAGE_SIZE } from "@/lib/constants/wishlist";
 import { WishlistList } from "./_components/WishlistList";
 
 export const metadata = {
-  title: "Wishlist | KnowSphere",
+  title: "Wishlist | SchoolSphere",
   description: "Courses you've saved for later.",
 };
 

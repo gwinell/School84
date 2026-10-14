@@ -13,7 +13,7 @@ import {
 } from "./_lib/courses-filters";
 
 export const metadata = {
-  title: "Courses | KnowSphere",
+  title: "Courses | SchoolSphere",
   description:
     "Browse our published courses and start learning something new today.",
 };

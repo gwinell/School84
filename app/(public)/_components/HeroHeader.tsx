@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
-import Image from "next/image";
+import { Brand } from "@/components/brand";
 import { ModeToggle } from "@/components/ModeToggle";
 import { authClient } from "@/lib/auth-client";
 import { UserDropDown } from "./UserDropDown";
@@ -82,13 +82,10 @@ export const HeroHeader = () => {
           {/* Left: logo */}
           <Link
             href="/"
-            aria-label="home"
+            aria-label="SchoolSphere home"
             className="flex shrink-0 items-center gap-2"
           >
-            <Image src="/logo.png" alt="KnowSphere Logo" className="size-9" width={36} height={36} />
-            <span className="hidden text-xl font-bold tracking-tight lg:inline">
-              KnowSphere
-            </span>
+            <Brand nameClassName="hidden text-xl lg:inline" />
           </Link>
 
           {/* Center: desktop nav links */}

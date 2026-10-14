@@ -122,7 +122,7 @@ export async function bulkInviteStudentsToCourse(input: unknown) {
   const manualInvites: Array<{ email: string; inviteUrl: string }> = [];
   if (env.AUTH_EMAIL_MODE === "console") {
     for (const invitation of invitations) {
-      console.info(`[School 84 local invitation] ${invitation.email}: ${invitation.inviteUrl}`);
+      console.info(`[SchoolSphere local invitation] ${invitation.email}: ${invitation.inviteUrl}`);
       manualInvites.push({ email: invitation.email, inviteUrl: invitation.inviteUrl });
     }
   } else {
@@ -131,9 +131,9 @@ export async function bulkInviteStudentsToCourse(input: unknown) {
         const result = await resend.emails.send({
           from: env.EMAIL_FROM,
           to: [invitation.email],
-          subject: `Приглашение на курс «${course.title}»`,
-          text: `Вас пригласили на курс «${course.title}». Откройте ссылку, чтобы принять приглашение: ${invitation.inviteUrl}\n\nСсылка действует 7 дней и может быть использована один раз.`,
-          html: `<p>Вас пригласили на курс «${escapeHtml(course.title)}».</p><p><a href="${escapeHtml(invitation.inviteUrl)}">Принять приглашение</a></p><p>Ссылка действует 7 дней и может быть использована один раз.</p>`,
+          subject: `SchoolSphere — приглашение на курс «${course.title}»`,
+          text: `Вас пригласили на курс «${course.title}» в SchoolSphere. Откройте ссылку, чтобы принять приглашение: ${invitation.inviteUrl}\n\nСсылка действует 7 дней и может быть использована один раз.`,
+          html: `<div style="font-family:Arial,sans-serif;color:#172033;max-width:560px;margin:0 auto"><h1 style="font-size:22px">SchoolSphere</h1><p>Вас пригласили на курс «${escapeHtml(course.title)}».</p><p><a style="display:inline-block;padding:12px 18px;border-radius:8px;background:#2563eb;color:white;text-decoration:none" href="${escapeHtml(invitation.inviteUrl)}">Принять приглашение</a></p><p style="color:#64748b;font-size:13px">Ссылка действует 7 дней и может быть использована один раз.</p></div>`,
         });
         if (result.error) throw result.error;
         sent++;
@@ -180,7 +180,7 @@ export async function inviteStudentToCourse(input: unknown) {
   // never destroy the only usable invite link; the teacher can share it from
   // the response UI and retry by creating a fresh invitation if needed.
   if (env.AUTH_EMAIL_MODE === "console") {
-    console.info(`[School 84 local invitation] ${email.data}: ${inviteUrl}`);
+    console.info(`[SchoolSphere local invitation] ${email.data}: ${inviteUrl}`);
     return successResponse("Если адрес может принять приглашение, ссылка отправлена или подготовлена для передачи; она действует 7 дней", {
       inviteUrl,
       alreadyAssigned: false,
@@ -192,9 +192,9 @@ export async function inviteStudentToCourse(input: unknown) {
     const result = await resend.emails.send({
       from: env.EMAIL_FROM,
       to: [email.data],
-      subject: `Приглашение на курс «${course.title}»`,
-      text: `Вас пригласили на курс «${course.title}». Откройте ссылку, чтобы принять приглашение: ${inviteUrl}\n\nСсылка действует 7 дней и может быть использована один раз.`,
-      html: `<p>Вас пригласили на курс «${escapeHtml(course.title)}».</p><p><a href="${escapeHtml(inviteUrl)}">Принять приглашение</a></p><p>Ссылка действует 7 дней и может быть использована один раз.</p>`,
+      subject: `SchoolSphere — приглашение на курс «${course.title}»`,
+      text: `Вас пригласили на курс «${course.title}» в SchoolSphere. Откройте ссылку, чтобы принять приглашение: ${inviteUrl}\n\nСсылка действует 7 дней и может быть использована один раз.`,
+      html: `<div style="font-family:Arial,sans-serif;color:#172033;max-width:560px;margin:0 auto"><h1 style="font-size:22px">SchoolSphere</h1><p>Вас пригласили на курс «${escapeHtml(course.title)}».</p><p><a style="display:inline-block;padding:12px 18px;border-radius:8px;background:#2563eb;color:white;text-decoration:none" href="${escapeHtml(inviteUrl)}">Принять приглашение</a></p><p style="color:#64748b;font-size:13px">Ссылка действует 7 дней и может быть использована один раз.</p></div>`,
     });
     if (result.error) throw result.error;
     return successResponse("Если адрес может принять приглашение, ссылка отправлена или подготовлена для передачи; она действует 7 дней", {

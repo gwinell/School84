@@ -5,13 +5,13 @@ import { usePathname } from "next/navigation";
 import { ComponentProps, type ReactNode } from "react";
 import {
   GraduationCapIcon,
-  LayersIcon,
   MessageCircleQuestionMarkIcon,
   UserIcon,
   ClipboardListIcon,
 } from "lucide-react";
 
 import NavUser from "@/components/nav-user";
+import { Brand } from "@/components/brand";
 import {
   Sidebar,
   SidebarContent,
@@ -74,8 +74,7 @@ export function DashboardSidebar({ role, ...props }: ComponentProps<typeof Sideb
               render={<Link href="/dashboard" />}
               className="data-[slot=sidebar-menu-button]:p-1.5!"
             >
-              <LayersIcon className="size-5!" />
-              <span className="text-base font-semibold">KnowSphere</span>
+              <Brand markClassName="size-5" nameClassName="text-base" />
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

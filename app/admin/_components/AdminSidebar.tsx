@@ -4,7 +4,6 @@ import { ComponentProps } from "react";
 import { usePathname } from "next/navigation";
 
 import {
-  LayersIcon,
   PlusCircleIcon,
   LayoutDashboardIcon,
   BookCheckIcon,
@@ -26,6 +25,7 @@ import {
 } from "@/components/ui/sidebar";
 import Link from "next/link";
 import NavUser from "@/components/nav-user";
+import { Brand } from "@/components/brand";
 
 function isNavItemActive(pathname: string, url: string) {
   if (url === "#") return false;
@@ -77,8 +77,7 @@ export function AdminSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
               render={<Link href="/admin" />}
               className="data-[slot=sidebar-menu-button]:p-1.5!"
             >
-              <LayersIcon className="size-5!" />
-              <span className="text-base font-semibold">KnowSphere Admin</span>
+              <Brand markClassName="size-5" nameClassName="text-base" />
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

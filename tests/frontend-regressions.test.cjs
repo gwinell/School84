@@ -396,3 +396,17 @@ test("text completion copy describes saved progress rather than an unrelated loc
   assert.match(text(tree), /сохранить прогресс урока/);
   assert.doesNotMatch(text(tree), /открыть следующую/);
 });
+
+test("shared brand uses SchoolSphere by default and accepts a school logo/name override", () => {
+  const h = load("components/brand.tsx", { "next/image": { default: "Image" } });
+  const defaultTree = h.render("Brand", {});
+  assert.equal(defaultTree.type, "span");
+  assert.match(text(defaultTree), /SchoolSphere/);
+  const schoolTree = h.render("Brand", { brand: { name: "Northside Academy", logoUrl: "/school.svg" } });
+  assert.match(text(schoolTree), /Northside Academy/);
+  const image = find(schoolTree, (node) => node.type === "Image");
+  assert.equal(image.props.src, "/school.svg");
+  assert.equal(image.props.alt, "");
+  const coloredMark = find(h.render("Brand", { brand: { name: "Northside Academy", primaryColor: "#124a73" } }), (node) => node.type === "svg");
+  assert.equal(coloredMark.props.style.color, "#124a73");
+});

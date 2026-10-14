@@ -3,16 +3,16 @@ import { type Metadata } from "next";
 import { LegalPage } from "../_components/LegalPage";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy | KnowSphere",
+  title: "Privacy Policy | SchoolSphere",
   description:
-    "How KnowSphere collects, uses, and protects your personal information.",
+    "How SchoolSphere collects, uses, and protects your personal information.",
 };
 
 export default function PrivacyPage() {
   return (
     <LegalPage
       title="Privacy Policy"
-      description="How KnowSphere collects, uses, and protects your personal information. We believe transparency is the foundation of trust."
+      description="How SchoolSphere collects, uses, and protects your personal information. We believe transparency is the foundation of trust."
       lastUpdated="August 17, 2026"
       effectiveDate="August 17, 2026"
     >
@@ -94,7 +94,7 @@ export default function PrivacyPage() {
 
       <h2>8. Children&rsquo;s Privacy</h2>
       <p>
-        KnowSphere is not intended for children under the age of 13, and we
+        SchoolSphere is not intended for children under the age of 13, and we
         do not knowingly collect personal information from children under
         13. If we learn that we have inadvertently collected information
         from a child under 13, we will take steps to delete it as soon as
@@ -104,7 +104,7 @@ export default function PrivacyPage() {
 
       <h2>9. International Data Transfers</h2>
       <p>
-        KnowSphere is operated from the United States, and your information
+        SchoolSphere is operated from the United States, and your information
         may be transferred to, stored in, and processed in the United States
         or other countries where our service providers operate. By using the
         Service, you consent to the transfer of your information outside of

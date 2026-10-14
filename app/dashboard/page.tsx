@@ -8,7 +8,7 @@ import { LearningActivityStats } from "./_components/LearningActivityStats";
 import { NotificationCenter } from "./_components/NotificationCenter";
 
 export const metadata = {
-  title: "My Learning | KnowSphere",
+  title: "My Learning | SchoolSphere",
   description: "Pick up where you left off.",
 };
 

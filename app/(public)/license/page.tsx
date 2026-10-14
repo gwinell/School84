@@ -3,23 +3,23 @@ import { type Metadata } from "next";
 import { LegalPage } from "../_components/LegalPage";
 
 export const metadata: Metadata = {
-  title: "License Agreement | KnowSphere",
+  title: "License Agreement | SchoolSphere",
   description:
-    "The license terms that govern your use of course content and materials on KnowSphere.",
+    "The license terms that govern your use of course content and materials on SchoolSphere.",
 };
 
 export default function LicensePage() {
   return (
     <LegalPage
       title="License Agreement"
-      description="The license terms that govern your use of course content, materials, and resources available on KnowSphere."
+      description="The license terms that govern your use of course content, materials, and resources available on SchoolSphere."
       lastUpdated="August 17, 2026"
       effectiveDate="August 17, 2026"
     >
       <h2>1. License Grant</h2>
       <p>
         Subject to your continued compliance with this License Agreement and
-        our Terms of Service, KnowSphere grants you a limited, personal,
+        our Terms of Service, SchoolSphere grants you a limited, personal,
         non-exclusive, non-transferable, non-sublicensable, and revocable
         license to access and use the course content and materials made
         available to you through the Service. This license is solely for your
@@ -55,7 +55,7 @@ export default function LicensePage() {
         All course content, including without limitation videos, audio
         recordings, written text, images, diagrams, code samples, slide
         decks, quizzes, and downloadable resources, is the intellectual
-        property of KnowSphere or its licensors (including instructors and
+        property of SchoolSphere or its licensors (including instructors and
         partner organizations). No ownership rights are transferred to you
         under this License. Nothing in this License constitutes a waiver of
         any of our intellectual property rights.
@@ -66,7 +66,7 @@ export default function LicensePage() {
         You retain ownership of any content you submit to the platform,
         including assignments, discussion posts, project submissions, and
         profile information. By submitting user content, you grant
-        KnowSphere a worldwide, non-exclusive, royalty-free, transferable
+        SchoolSphere a worldwide, non-exclusive, royalty-free, transferable
         license to host, store, reproduce, modify (for formatting purposes),
         publish, and display such content in connection with operating and
         improving the Service. You represent that you have all rights
@@ -97,7 +97,7 @@ export default function LicensePage() {
 
       <h2>8. Limitation of Liability</h2>
       <p>
-        To the maximum extent permitted by applicable law, KnowSphere and
+        To the maximum extent permitted by applicable law, SchoolSphere and
         its instructors, affiliates, officers, and employees shall not be
         liable for any indirect, incidental, special, consequential, or
         punitive damages arising out of or in connection with your use of
@@ -110,7 +110,7 @@ export default function LicensePage() {
 
       <h2>9. Indemnification</h2>
       <p>
-        You agree to indemnify, defend, and hold harmless KnowSphere and its
+        You agree to indemnify, defend, and hold harmless SchoolSphere and its
         affiliates, officers, directors, employees, and instructors from any
         claim, demand, loss, liability, damage, or expense (including
         reasonable attorneys&rsquo; fees) arising out of or related to your

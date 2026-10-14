@@ -489,6 +489,9 @@ test('course invitation persists first, then sends a Resend email with an escape
   const mail = plain(fixture.events.at(-1).message);
   assert.deepEqual(mail.to, ['new-student@example.test']);
   assert.equal(mail.from, 'school@example.test');
+  assert.match(mail.subject, /SchoolSphere/);
+  assert.match(mail.text, /SchoolSphere/);
+  assert.match(mail.html, /SchoolSphere/);
   assert.match(mail.text, new RegExp(result.data.inviteUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.match(mail.html, /Course &lt;One&gt;/);
   assert.doesNotMatch(mail.html, /Course <One>/);

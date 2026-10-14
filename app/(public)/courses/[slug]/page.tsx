@@ -29,7 +29,7 @@ export async function generateMetadata({
   const course = await getCourseBySlug(slug);
   const path = `/courses/${course.slug}`;
   return {
-    title: `${course.title} | KnowSphere`,
+    title: `${course.title} | SchoolSphere`,
     description: course.smallDesc,
     alternates: { canonical: path },
     openGraph: {

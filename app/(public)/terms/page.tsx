@@ -3,22 +3,22 @@ import { type Metadata } from "next";
 import { LegalPage } from "../_components/LegalPage";
 
 export const metadata: Metadata = {
-  title: "Terms of Service | KnowSphere",
+  title: "Terms of Service | SchoolSphere",
   description:
-    "The terms and conditions that govern your use of the KnowSphere learning platform.",
+    "The terms and conditions that govern your use of the SchoolSphere learning platform.",
 };
 
 export default function TermsPage() {
   return (
     <LegalPage
       title="Terms of Service"
-      description="The terms and conditions that govern your use of the KnowSphere learning platform. Please read them carefully before using our services."
+      description="The terms and conditions that govern your use of the SchoolSphere learning platform. Please read them carefully before using our services."
       lastUpdated="August 17, 2026"
       effectiveDate="August 17, 2026"
     >
       <h2>1. Acceptance of Terms</h2>
       <p>
-        By accessing or using KnowSphere (the &ldquo;Service&rdquo;), you agree
+        By accessing or using SchoolSphere (the &ldquo;Service&rdquo;), you agree
         to be bound by these Terms of Service (&ldquo;Terms&rdquo;). If you do
         not agree to these Terms, you must not access or use the Service. We may
         update these Terms from time to time, and your continued use of the
@@ -27,7 +27,7 @@ export default function TermsPage() {
 
       <h2>2. Eligibility</h2>
       <p>
-        You must be at least 13 years old to use KnowSphere. By using the
+        You must be at least 13 years old to use SchoolSphere. By using the
         Service, you represent and warrant that you meet this eligibility
         requirement and that you have the legal capacity to enter into these
         Terms. If you are using the Service on behalf of an organization, you
@@ -69,7 +69,7 @@ export default function TermsPage() {
       <p>
         All content available through the Service — including videos, lesson
         text, images, code samples, quizzes, and course materials — is owned by
-        KnowSphere or its licensors and is protected by copyright, trademark,
+        SchoolSphere or its licensors and is protected by copyright, trademark,
         and other intellectual property laws. You may not reproduce, distribute,
         modify, publicly display, or create derivative works from any course
         content without our prior written consent.
@@ -82,7 +82,7 @@ export default function TermsPage() {
         other users, posting offensive content, attempting to gain unauthorized
         access to the Service or its systems, scraping or harvesting data,
         reverse engineering the platform, or using the Service to compete
-        with KnowSphere. We reserve the right to investigate and take
+        with SchoolSphere. We reserve the right to investigate and take
         appropriate action against any suspected violation.
       </p>
 
@@ -109,7 +109,7 @@ export default function TermsPage() {
 
       <h2>10. Limitation of Liability</h2>
       <p>
-        To the maximum extent permitted by applicable law, KnowSphere and its
+        To the maximum extent permitted by applicable law, SchoolSphere and its
         affiliates, officers, employees, and instructors shall not be liable
         for any indirect, incidental, special, consequential, or punitive
         damages arising out of or related to your use of the Service. Our

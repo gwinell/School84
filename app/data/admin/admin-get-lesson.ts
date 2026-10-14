@@ -58,7 +58,7 @@ export async function adminGetLesson({ id }: TAdminGetLessonProps) {
     : (await prisma.courseInstructor.findMany({ where: { userId: session.user.id }, select: { courseId: true } })).map((row) => row.courseId);
   const scopedWhere = { id, ...(managedCourseIds ? { chapter: { courseId: { in: managedCourseIds } } } : {}) };
 
-  // Preserve KnowSphere lessons created before the cell editor existed.
+  // Preserve SchoolSphere lessons created before the cell editor existed.
   // Their notes and quiz are moved into ordered cells the first time an
   // administrator opens the editor.
   const legacyLesson = await prisma.lesson.findFirst({

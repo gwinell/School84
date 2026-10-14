@@ -3,7 +3,7 @@ import { requireUser } from "@/app/data/user/require-user";
 import { ProfileForm } from "./_components/ProfileForm";
 
 export const metadata = {
-  title: "Profile | KnowSphere",
+  title: "Profile | SchoolSphere",
 };
 
 export default async function ProfilePage() {

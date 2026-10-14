@@ -59,7 +59,7 @@ export function PlayerHeader({
           {courseTitle}
         </span>
         <span className="hidden rounded-full border border-white/15 px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider text-slate-300 sm:inline-flex">
-          School 84
+          SchoolSphere
         </span>
       </header>
 

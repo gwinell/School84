@@ -1,6 +1,6 @@
 import { buttonVariants } from "@/components/ui/button";
 import { ArrowLeftIcon } from "lucide-react";
-import Image from "next/image";
+import { Brand } from "@/components/brand";
 import Link from "next/link";
 
 interface IAuthLayoutProps {
@@ -26,11 +26,7 @@ export default function AuthLayout({ children }: IAuthLayoutProps) {
           href="/"
           className="flex items-center gap-2 self-center font-medium"
         >
-          <Image src="/logo.png" alt="KnowSphere Logo" width={32} height={32} />
-          <span className="text-md">
-            <span className="font-bold text-primary">Know</span>
-            Sphere
-          </span>
+          <Brand />
         </Link>
 
         {children}

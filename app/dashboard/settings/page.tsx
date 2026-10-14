@@ -5,7 +5,7 @@ import { getMyCertificateVisibility } from "@/app/data/user/get-my-certificate-v
 import { CertificateVisibilityCard } from "./_components/CertificateVisibilityCard";
 
 export const metadata = {
-  title: "Settings | KnowSphere",
+  title: "Settings | SchoolSphere",
 };
 
 export default async function SettingsPage() {

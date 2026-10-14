@@ -121,7 +121,7 @@ export function Features() {
         <div className="mx-auto max-w-2xl space-y-4 text-center">
           <Badge variant="secondary" className="gap-1.5">
             <SparklesIcon className="size-3" />
-            Why KnowSphere
+            Why SchoolSphere
           </Badge>
 
           <h2 className="text-3xl md:text-4xl font-bold tracking-tight text-balance">

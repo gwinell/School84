@@ -8,9 +8,9 @@ import { getOptionalSession } from "../_lib/get-optional-session";
 import { ContactForm } from "./_components/ContactForm";
 
 export const metadata: Metadata = {
-  title: "Contact | KnowSphere",
+  title: "Contact | SchoolSphere",
   description:
-    "Get in touch with the KnowSphere team. Questions about a course, your account, or anything else? Send us a message.",
+    "Get in touch with the SchoolSphere team. Questions about a course, your account, or anything else? Send us a message.",
 };
 
 const SUPPORT_EMAIL = "support@knowsphere.app";
