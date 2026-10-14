@@ -18,6 +18,20 @@ jobs:
     name: Verify application
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: school84_tenant_test
+          POSTGRES_USER: school84
+          POSTGRES_PASSWORD: ci-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U school84 -d school84_tenant_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
     env:
       DATABASE_URL: postgresql://school84:ci-only-password@127.0.0.1:5432/school84?sslmode=disable
       BETTER_AUTH_SECRET: ci-only-secret-not-for-deployment
@@ -67,6 +81,11 @@ jobs:
 
       - name: Generate Prisma client
         run: pnpm exec prisma generate
+
+      - name: Run tenant migration and PostgreSQL isolation tests
+        run: pnpm test:tenant
+        env:
+          TEST_TENANCY_DATABASE_URL: postgresql://school84:ci-only-password@127.0.0.1:5432/school84_tenant_test?sslmode=disable
 
       - name: Run application regressions
         run: pnpm test
