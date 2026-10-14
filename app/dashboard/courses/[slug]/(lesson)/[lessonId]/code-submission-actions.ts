@@ -124,6 +124,14 @@ export async function submitCodeTaskAction(input: unknown): Promise<tApiResponse
     });
     if (!response.ok) throw new Error(`Runner returned ${response.status}`);
     const runnerResult = runnerResultSchema.parse(await response.json());
+    if (
+      runnerResult.totalTests !== tests.length ||
+      runnerResult.passedTests > runnerResult.totalTests ||
+      (runnerResult.status === "ACCEPTED" && runnerResult.passedTests !== tests.length) ||
+      runnerResult.durationMs > 2_147_483_647
+    ) {
+      throw new Error("Runner returned inconsistent grading results");
+    }
     result = {
       ...runnerResult,
       actualOutput: safeText(runnerResult.actualOutput) ?? "",

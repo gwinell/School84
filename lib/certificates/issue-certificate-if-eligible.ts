@@ -39,7 +39,7 @@ export async function issueCertificateIfEligible({
         user: { select: { name: true } },
         courseChapters: {
           select: {
-            lessons: { select: { id: true } },
+            lessons: { select: { id: true, cells: { select: { id: true } } } },
           },
         },
       },
@@ -67,6 +67,17 @@ export async function issueCertificateIfEligible({
     });
 
     if (completedCount < totalLessons) {
+      return { issued: false, reason: "not-complete" } as const;
+    }
+
+    // Lesson flags can predate new cells. Check the current curriculum before
+    // issuing a certificate; only server-validated cell progress counts.
+    const cellIds = course.courseChapters.flatMap((chapter) =>
+      chapter.lessons.flatMap((lesson) => lesson.cells.map((cell) => cell.id)),
+    );
+    if (cellIds.length > 0 && (await tx.lessonCellProgress.count({
+      where: { userId, lessonCellId: { in: cellIds }, status: "PASSED" },
+    })) !== cellIds.length) {
       return { issued: false, reason: "not-complete" } as const;
     }
 

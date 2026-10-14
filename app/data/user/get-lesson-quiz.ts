@@ -1,6 +1,7 @@
 import "server-only";
 
 import prisma from "@/lib/prisma";
+import { canAccessAssignedLesson } from "@/lib/course-access";
 import { requireUser } from "./require-user";
 
 export type tUserQuizAnswer = {
@@ -55,12 +56,15 @@ export async function getLessonQuizForUser({
           courseId: lesson.chapter.courseId,
         },
       },
-      select: { status: true },
+      select: { status: true, accessMode: true },
     });
 
     if (!enrollment || enrollment.status !== "Active") {
       return null;
     }
+    if (enrollment.accessMode === "SEQUENTIAL" && !(await canAccessAssignedLesson({
+      userId: session.user.id, courseId: lesson.chapter.courseId, lessonId,
+    }))) return null;
   }
 
   // Deliberately excludes `isCorrect`/`explanation` — grading happens in a

@@ -230,29 +230,13 @@ export async function getCourseForLearning({
         lesson.cells.map((cell) => ({
           userId: session.user.id,
           lessonCellId: cell.id,
-          status: lesson.lessonProgress[0]?.completed
-            ? ("PASSED" as const)
-            : accessMode === "ALL_AT_ONCE" || lesson.id === courseLessons[0]?.id
-              ? ("AVAILABLE" as const)
-              : ("LOCKED" as const),
-          ...(lesson.lessonProgress[0]?.completed ? { passedAt: new Date() } : {}),
+          status: accessMode === "ALL_AT_ONCE" || lesson.id === courseLessons[0]?.id
+            ? ("AVAILABLE" as const)
+            : ("LOCKED" as const),
         })),
       ),
       skipDuplicates: true,
     });
-    const previouslyCompletedCellIds = courseLessons
-      .filter((lesson) => lesson.lessonProgress[0]?.completed)
-      .flatMap((lesson) => lesson.cells.map((cell) => cell.id));
-    if (previouslyCompletedCellIds.length > 0) {
-      await prisma.lessonCellProgress.updateMany({
-        where: {
-          userId: session.user.id,
-          lessonCellId: { in: previouslyCompletedCellIds },
-          status: { not: "PASSED" },
-        },
-        data: { status: "PASSED", passedAt: new Date() },
-      });
-    }
   }
 
   const cellProgress = await prisma.lessonCellProgress.findMany({
@@ -278,7 +262,7 @@ export async function getCourseForLearning({
 
   const lessons = course.courseChapters.flatMap((c) => c.lessons);
 
-  const currentVideoKey = currentLessonId
+  const currentVideoKey = currentLessonId && unlockedLessonIds.has(currentLessonId)
     ? (lessons.find((l) => l.id === currentLessonId)?.videoKey ?? null)
     : null;
 
@@ -302,7 +286,7 @@ export async function getCourseForLearning({
       lessons: await Promise.all(chapter.lessons.map(async (lesson) => ({
         id: lesson.id,
         title: lesson.title,
-        description: lesson.description,
+        description: unlockedLessonIds.has(lesson.id) ? lesson.description : null,
         videoUrl: lesson.id === currentLessonId ? currentVideoUrl : null,
         position: lesson.position,
         completed: lesson.lessonProgress[0]?.completed ?? false,
