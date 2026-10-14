@@ -120,7 +120,7 @@ test('course overview Continue button resumes the saved cell as well as the less
   assert.equal(continueButton.props.render.props.href, '/dashboard/courses/python/lesson-2?cellId=cell-3');
 });
 
-test('bulk course assignment normalizes and deduplicates emails before the action call', async () => {
+test('bulk course invitations normalize addresses and show generic delivery plus manual links', async () => {
   const calls = [];
   const toastMessages = [];
   const h = load('app/teacher/_components/CourseRosterManager.tsx', {
@@ -129,21 +129,26 @@ test('bulk course assignment normalizes and deduplicates emails before the actio
   });
   const props = { courseId: 'course-1', enrollments: [],
     onInvite: async () => ({ status: 'success', data: { inviteUrl: null, alreadyAssigned: false } }),
-    onBulkAssign: async (value) => { calls.push(value); return { status: 'success', message: 'Запрос обработан. Доступ предоставлен подходящим аккаунтам.', data: { requested: 2 } }; },
+    onBulkInvite: async (value) => { calls.push(value); return { status: 'success', message: 'Запрос обработан. Приглашения отправлены или подготовлены для передачи.', data: { requested: 2, invalidCount: 0, sent: 1, failed: 1, emailDelivery: 'partial', manualInvites: [{ email: 'b@example.test', inviteUrl: 'https://school.example.test/invite/token' }] } }; },
     onCancel: async () => ({ status: 'success' }), onSetDueDate: async () => ({ status: 'success' }),
   };
   let tree = h.render('CourseRosterManager', props);
-  const form = find(tree, (node) => node.type === 'form' && node.props['aria-label'] === 'Массово назначить курс');
+  const form = find(tree, (node) => node.type === 'form' && node.props['aria-label'] === 'Пригласить учеников списком');
   const textarea = find(form, (node) => node.type === 'Textarea');
   textarea.props.onChange({ target: { value: ' A@Example.test, a@example.test\nB@Example.test; ' } });
   tree = h.render('CourseRosterManager', props);
-  submit(find(tree, (node) => node.type === 'form' && node.props['aria-label'] === 'Массово назначить курс'));
+  submit(find(tree, (node) => node.type === 'form' && node.props['aria-label'] === 'Пригласить учеников списком'));
   await h.flush();
   assert.deepEqual(plain(calls), [{ courseId: 'course-1', accessMode: 'ALL_AT_ONCE', dueAt: null, emails: ['a@example.test', 'b@example.test'] }]);
   const status = find(h.render('CourseRosterManager', props), (node) => node.props.role === 'status');
-  assert.match(text(status), /Позиции в запросе: 2/);
-  assert.doesNotMatch(text(status), /не найдены|уже назначены|добавлено/i);
-  assert.deepEqual(toastMessages, ['Запрос обработан. Доступ предоставлен подходящим аккаунтам.']);
+  assert.match(text(status), /Адресов: 2; отправлено: 1; требуется передать вручную: 1/);
+  assert.doesNotMatch(text(status), /не найдены|уже назначены|добавлено|аккаунт существует/i);
+  assert.equal(find(h.render('CourseRosterManager', props), (node) => node.props['aria-label'] === 'Ссылка приглашения: b@example.test').props.value, 'https://school.example.test/invite/token');
+  assert.deepEqual(toastMessages, ['Запрос обработан. Приглашения отправлены или подготовлены для передачи.']);
+  const formText = text(find(h.render('CourseRosterManager', props), (node) => node.type === 'form' && node.props['aria-label'] === 'Пригласить учеников списком'));
+  assert.match(formText, /Приглашения по списку/);
+  assert.match(formText, /после принятия приглашения/);
+  assert.doesNotMatch(formText, /Массовое назначение/);
 });
 
 test('cancel access requires confirmation and reports the exact learner/course pair', async () => {
@@ -152,7 +157,7 @@ test('cancel access requires confirmation and reports the exact learner/course p
   const h = load('app/teacher/_components/CourseRosterManager.tsx', {}, { window: { confirm: () => confirm } });
   const props = { courseId: 'course-1', enrollments: [{ id: 'enrollment-1', user: { id: 'learner-1', name: 'Learner', email: 'learner@example.test' }, status: 'Active', accessMode: 'ALL_AT_ONCE' }],
     onInvite: async () => ({ status: 'success', data: { inviteUrl: null, alreadyAssigned: false } }),
-    onBulkAssign: async () => ({ status: 'success', data: { requested: 0 } }),
+    onBulkInvite: async () => ({ status: 'success', data: { requested: 0, invalidCount: 0, sent: 0, failed: 0, emailDelivery: 'sent', manualInvites: [] } }),
     onCancel: async (value) => { calls.push(value); return { status: 'success' }; }, onSetDueDate: async () => ({ status: 'success' }),
   };
   let tree = h.render('CourseRosterManager', props);

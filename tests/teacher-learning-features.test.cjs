@@ -94,7 +94,7 @@ test('bulk assignment checks course scope before querying users or writing enrol
     '@/lib/env': { env: { BETTER_AUTH_URL: 'http://localhost' } },
   };
   const subject = load(teacherActions, mocks);
-  await assert.rejects(subject.bulkAssignStudents({ courseId: 'course-2', emails: ['student@example.test'] }), /REDIRECT:\/not-admin/);
+  await assert.rejects(subject.bulkAssignStudents({ courseId: 'course-2', userIds: ['learner-1'] }), /REDIRECT:\/not-admin/);
   assert.deepEqual(dbCalls, []);
 });
 
@@ -129,56 +129,190 @@ function bulkAssignmentAction({ users = [], denied = false, limiterThrows = fals
   return { action: subject.bulkAssignStudents, events, limiterCalls: () => limiterCalls };
 }
 
-test('bulk assignment response does not disclose account, role, or enrollment state for email or user ID targets', async () => {
+test('bulk user-ID assignment response is generic and has no email lookup', async () => {
   const targets = [
-    { name: 'new learner email', input: { emails: ['student@example.test'] }, users: [{ id: 'learner-1', email: 'student@example.test', role: 'user', enrollment: [] }], writes: true },
-    { name: 'already enrolled learner email', input: { emails: ['student@example.test'] }, users: [{ id: 'learner-2', email: 'student@example.test', role: 'user', enrollment: [{ status: 'Active' }] }], writes: false },
-    { name: 'teacher email', input: { emails: ['target@example.test'] }, users: [{ id: 'teacher-2', email: 'target@example.test', role: 'teacher', enrollment: [] }], writes: false },
-    { name: 'admin email', input: { emails: ['target@example.test'] }, users: [{ id: 'admin-2', email: 'target@example.test', role: 'admin', enrollment: [] }], writes: false },
-    { name: 'unknown email', input: { emails: ['target@example.test'] }, users: [], writes: false },
-    { name: 'new learner user ID', input: { userIds: ['learner-1'] }, users: [{ id: 'learner-1', email: 'student@example.test', role: 'user', enrollment: [] }], writes: true },
-    { name: 'teacher user ID', input: { userIds: ['teacher-2'] }, users: [{ id: 'teacher-2', email: 'target@example.test', role: 'teacher', enrollment: [] }], writes: false },
-    { name: 'unknown user ID', input: { userIds: ['missing-id'] }, users: [], writes: false },
+    { name: 'new learner', id: 'learner-1', users: [{ id: 'learner-1', role: 'user', enrollment: [] }], writes: true },
+    { name: 'already enrolled learner', id: 'learner-2', users: [{ id: 'learner-2', role: 'user', enrollment: [{ status: 'Active' }] }], writes: false },
+    { name: 'teacher', id: 'teacher-2', users: [{ id: 'teacher-2', role: 'teacher', enrollment: [] }], writes: false },
+    { name: 'admin', id: 'admin-2', users: [{ id: 'admin-2', role: 'admin', enrollment: [] }], writes: false },
+    { name: 'unknown ID', id: 'missing-id', users: [], writes: false },
   ];
   const responses = [];
   for (const target of targets) {
     const fixture = bulkAssignmentAction({ users: target.users });
-    const result = await fixture.action({ courseId: 'course-1', accessMode: 'ALL_AT_ONCE', ...target.input });
+    const result = await fixture.action({ courseId: 'course-1', userIds: [target.id], accessMode: 'ALL_AT_ONCE' });
     assert.equal(result.status, 'success', target.name);
     assert.deepEqual(plain(result.data), { requested: 1 }, target.name);
     assert.equal(result.message, 'Запрос обработан. Доступ предоставлен подходящим аккаунтам.', target.name);
     assert.equal(fixture.events.filter((event) => event.type === 'enrollment').length > 0, target.writes, target.name);
+    assert.deepEqual(Object.keys(fixture.events.find((event) => event.type === 'lookup').query.where), ['id']);
     responses.push(plain(result));
   }
   for (const response of responses.slice(1)) assert.deepEqual(response, responses[0]);
 });
 
-test('bulk assignment actor limit denies before account lookup or enrollment writes', async () => {
-  const fixture = bulkAssignmentAction({ denied: true });
-  const result = await fixture.action({ courseId: 'course-1', emails: ['target@example.test'] });
-  assert.equal(result.status, 'error');
-  assert.equal(result.message, 'Не удалось обработать назначение. Повторите позже.');
-  assert.equal(fixture.limiterCalls(), 1);
-  assert.deepEqual(fixture.events.map((event) => event.type), ['limit']);
+function bulkInvitationAction({ emailMode = 'resend', users = [], deniedRateLimitCall = 0, failedEmails = new Set(), arcjetEnabled = true } = {}) {
+  const events = [];
+  const invitationRecords = [];
+  let userLookups = 0;
+  let enrollmentWrites = 0;
+  let rateLimitCalls = 0;
+  const subject = load(teacherActions, {
+    '@/app/data/teacher/require-course-teacher': { requireCourseTeacher: async () => ({
+      session: { user: { id: 'teacher-1', role: 'teacher' } },
+      course: { id: 'course-1', title: 'Course <One>' },
+    }) },
+    '@/lib/env': { env: { BETTER_AUTH_URL: 'https://school.example.test', EMAIL_FROM: 'school@example.test', AUTH_EMAIL_MODE: emailMode, ARCJET_ENABLED: arcjetEnabled ? 'true' : 'false' } },
+    '@/lib/resend': { resend: { emails: { send: async (message) => {
+      events.push({ type: 'mail', message });
+      if (failedEmails.has(message.to[0])) throw Error('provider unavailable');
+      return {};
+    } } } },
+    '@/lib/arcjet': {
+      __esModule: true,
+      default: { withRule() { return { protect: async (_req, data) => {
+        rateLimitCalls++;
+        events.push({ type: 'limit', fingerprint: data.fingerprint });
+        return { isDenied: () => rateLimitCalls === deniedRateLimitCall };
+      } }; } },
+      fixedWindow: (config) => config,
+    },
+    '@arcjet/next': { request: async () => ({ requestId: 'mock' }) },
+    '@/lib/prisma': {
+      user: { findMany: async () => { userLookups++; return users; } },
+      courseInvitation: { findUnique: async () => null },
+      $transaction: async (callback) => callback({
+        courseInvitation: {
+          deleteMany: async (query) => { events.push({ type: 'replace', query }); },
+          create: async ({ data }) => { invitationRecords.push(data); events.push({ type: 'create', data }); },
+          updateMany: async () => ({ count: 1 }),
+        },
+        enrollment: { upsert: async (query) => { enrollmentWrites++; events.push({ type: 'enrollment', query }); } },
+        studentNotification: { upsert: async () => {} },
+      }),
+    },
+  }, { console: { info: (message) => events.push({ type: 'console', message }), error: (message) => events.push({ type: 'error', message }) } });
+  return {
+    action: subject.bulkInviteStudentsToCourse,
+    events,
+    records: () => invitationRecords,
+    userLookups: () => userLookups,
+    enrollmentWrites: () => enrollmentWrites,
+    rateLimitCalls: () => rateLimitCalls,
+  };
+}
+
+test('bulk email invitations have identical results for learner, enrolled, role and unknown addresses without lookup or enrollment', async () => {
+  const states = [
+    { name: 'unassigned learner', user: { id: 'learner-1', role: 'user', enrollment: [] } },
+    { name: 'enrolled learner', user: { id: 'learner-2', role: 'user', enrollment: [{ status: 'Active' }] } },
+    { name: 'teacher', user: { id: 'teacher-2', role: 'teacher', enrollment: [] } },
+    { name: 'admin', user: { id: 'admin-2', role: 'admin', enrollment: [] } },
+    { name: 'unknown', user: null },
+  ];
+  const responses = [];
+  for (const [index, state] of states.entries()) {
+    const fixture = bulkInvitationAction({ users: state.user ? [state.user] : [] });
+    const email = `person-${index}@example.test`;
+    const result = await fixture.action({ courseId: 'course-1', emails: [email], accessMode: 'SEQUENTIAL' });
+    assert.equal(result.status, 'success', state.name);
+    assert.equal(result.message, 'Запрос обработан. Приглашения отправлены или подготовлены для передачи; ссылка действует 7 дней.', state.name);
+    assert.deepEqual(plain(result.data), { requested: 1, invalidCount: 0, sent: 1, failed: 0, emailDelivery: 'sent', manualInvites: [] }, state.name);
+    assert.equal(fixture.records().length, 1, state.name);
+    assert.equal(fixture.records()[0].email, email, state.name);
+    assert.ok(fixture.records()[0].tokenHash, state.name);
+    assert.equal('token' in fixture.records()[0], false, state.name);
+    assert.equal(fixture.userLookups(), 0, state.name);
+    assert.equal(fixture.enrollmentWrites(), 0, state.name);
+    assert.equal(fixture.events.filter((event) => event.type === 'mail').length, 1, state.name);
+    responses.push(plain(result));
+  }
+  for (const response of responses.slice(1)) assert.deepEqual(response, responses[0]);
 });
 
-test('bulk assignment fails closed when Arcjet cannot decide', async () => {
-  const fixture = bulkAssignmentAction({ limiterThrows: true });
-  const result = await fixture.action({ courseId: 'course-1', userIds: ['learner-1'] });
+test('bulk invitation preflight denies a later recipient without persisting or sending any part of the batch', async () => {
+  const fixture = bulkInvitationAction({ deniedRateLimitCall: 4 });
+  const result = await fixture.action({ courseId: 'course-1', emails: ['one@example.test', 'two@example.test'] });
   assert.equal(result.status, 'error');
-  assert.equal(result.message, 'Не удалось обработать назначение. Повторите позже.');
-  assert.deepEqual(fixture.events.map((event) => event.type), ['limit']);
+  assert.equal(result.message, 'Не удалось обработать приглашения. Повторите позже.');
+  assert.equal(fixture.rateLimitCalls(), 4);
+  assert.deepEqual(fixture.events.map((event) => event.type), ['limit', 'limit', 'limit', 'limit']);
+  assert.equal(fixture.records().length, 0);
+  assert.equal(fixture.events.some((event) => event.type === 'mail'), false);
+  assert.equal(fixture.userLookups(), 0);
+  assert.equal(fixture.enrollmentWrites(), 0);
 });
 
-test('local/demo bulk assignment fallback rate-limits before lookup after five requests', async () => {
-  const fixture = bulkAssignmentAction({ arcjetEnabled: false });
-  const input = { courseId: 'course-1', emails: ['target@example.test'] };
-  const results = [];
-  for (let i = 0; i < 6; i++) results.push(await fixture.action(input));
-  assert.deepEqual(results.map((result) => result.status), [...Array(5).fill('success'), 'error']);
-  assert.equal(fixture.limiterCalls(), 0, 'local mode does not call Arcjet');
-  assert.equal(fixture.events.filter((event) => event.type === 'lookup').length, 5);
-  assert.equal(fixture.events.filter((event) => event.type === 'limit').length, 0);
+test('bulk invitations preserve failed addresses and expose manual links while continuing the batch', async () => {
+  const fixture = bulkInvitationAction({ failedEmails: new Set(['two@example.test']) });
+  const result = await fixture.action({ courseId: 'course-1', emails: ['one@example.test', 'two@example.test'] });
+  assert.equal(result.status, 'success');
+  assert.equal(result.data.emailDelivery, 'partial');
+  assert.equal(result.data.sent, 1);
+  assert.equal(result.data.failed, 1);
+  assert.equal(result.data.manualInvites.length, 1);
+  assert.equal(result.data.manualInvites[0].email, 'two@example.test');
+  assert.match(result.data.manualInvites[0].inviteUrl, /^https:\/\/school\.example\.test\/invite\/[A-Za-z0-9_-]+$/);
+  assert.equal(fixture.records().length, 2, 'both links remain backed by stored invitations');
+  assert.equal(fixture.events.filter((event) => event.type === 'mail').length, 2, 'a failed recipient does not prevent later sends');
+});
+
+test('bulk invitation console mode returns manual links and never calls Resend', async () => {
+  const fixture = bulkInvitationAction({ emailMode: 'console' });
+  const result = await fixture.action({ courseId: 'course-1', emails: ['one@example.test', 'two@example.test'] });
+  assert.equal(result.status, 'success');
+  assert.equal(result.data.emailDelivery, 'console');
+  assert.equal(result.data.manualInvites.length, 2);
+  assert.equal(fixture.records().length, 2);
+  assert.equal(fixture.events.some((event) => event.type === 'mail'), false);
+  assert.equal(fixture.events.filter((event) => event.type === 'console').length, 2);
+  assert.equal(fixture.userLookups(), 0);
+  assert.equal(fixture.enrollmentWrites(), 0);
+});
+
+test('bulk invitations keep a bounded local/demo actor limit across ten-address batches', async () => {
+  const fixture = bulkInvitationAction({ emailMode: 'console', arcjetEnabled: false });
+  const first = await fixture.action({ courseId: 'course-1', emails: Array.from({ length: 10 }, (_, index) => `local-${index}@example.test`) });
+  assert.equal(first.status, 'success');
+  assert.equal(first.data.manualInvites.length, 10);
+  assert.equal(fixture.rateLimitCalls(), 0, 'local mode never calls Arcjet');
+  assert.equal(fixture.records().length, 10);
+  const second = await fixture.action({ courseId: 'course-1', emails: ['eleventh@example.test'] });
+  assert.equal(second.status, 'error');
+  assert.equal(fixture.records().length, 10, 'denied batches do not persist invitations');
+  assert.equal(fixture.events.filter((event) => event.type === 'console').length, 10);
+  assert.equal(fixture.events.filter((event) => event.type === 'mail').length, 0);
+});
+
+test('bulk invitations enforce a ten-address cap and report malformed addresses without identifying accounts', async () => {
+  const tooMany = bulkInvitationAction();
+  const rejected = await tooMany.action({ courseId: 'course-1', emails: Array.from({ length: 11 }, (_, index) => `person-${index}@example.test`) });
+  assert.equal(rejected.status, 'error');
+  assert.equal(tooMany.rateLimitCalls(), 0);
+  assert.equal(tooMany.records().length, 0);
+  assert.equal(tooMany.events.some((event) => event.type === 'mail'), false);
+
+  const mixed = bulkInvitationAction();
+  const result = await mixed.action({ courseId: 'course-1', emails: ['valid@example.test', 'not an email'] });
+  assert.equal(result.status, 'success');
+  assert.equal(result.data.requested, 1);
+  assert.equal(result.data.invalidCount, 1);
+  assert.equal(mixed.records().length, 1);
+  assert.equal(mixed.userLookups(), 0);
+});
+
+test('bulk invitations retain exact course authorization before preflight or side effects', async () => {
+  const events = [];
+  const subject = load(teacherActions, {
+    '@/app/data/teacher/require-course-teacher': { requireCourseTeacher: async () => { throw Error('REDIRECT:/not-admin'); } },
+    '@/lib/env': { env: { ARCJET_ENABLED: 'true' } },
+    '@/lib/prisma': { user: { findMany: async () => { events.push('lookup'); return []; } }, $transaction: async () => { events.push('transaction'); } },
+    '@/lib/arcjet': { __esModule: true, default: { withRule: () => ({ protect: async () => { events.push('limit'); return { isDenied: () => false }; } }) }, fixedWindow: (config) => config },
+    '@arcjet/next': { request: async () => ({}) },
+    '@/lib/resend': { resend: { emails: { send: async () => { events.push('mail'); return {}; } } } },
+  });
+  await assert.rejects(subject.bulkInviteStudentsToCourse({ courseId: 'other-course', emails: ['student@example.test'] }), /REDIRECT:\/not-admin/);
+  assert.deepEqual(events, []);
 });
 
 test('manual review rejects out-of-range, fractional, empty, and ambiguous targets before lookup', async () => {
@@ -248,6 +382,37 @@ test('manual review persists only a bounded score and comment after checking the
   assert.equal(writes[0].create.reviewerId, 'teacher-1');
   assert.equal(writes[0].create.score, 92);
   assert.equal(writes[0].create.comment, 'Clear solution');
+});
+
+test('accepting a verified matching bulk invitation enrolls the learner only at acceptance', async () => {
+  const token = 'valid-token-value-that-is-long-enough-123456';
+  const tokenHash = require('node:crypto').createHash('sha256').update(token).digest('hex');
+  const writes = [];
+  let invitationClaimed = false;
+  const subject = load(teacherActions, {
+    '@/app/data/teacher/require-course-teacher': { requireCourseTeacher: async () => { throw Error('not used'); } },
+    '@/app/data/teacher/require-teacher': { requireTeacher: async () => ({ user: { id: 'teacher-1', role: 'teacher' } }) },
+    '@/app/data/user/require-user': { requireUser: async () => ({ user: { id: 'learner-1', role: 'user', email: 'student@example.test', emailVerified: true } }) },
+    '@/lib/env': { env: { BETTER_AUTH_URL: 'https://school.example.test', ARCJET_ENABLED: 'true' } },
+    '@/lib/prisma': {
+      courseInvitation: { findUnique: async ({ where }) => {
+        assert.equal(where.tokenHash, tokenHash);
+        return { id: 'invite-1', courseId: 'course-1', email: 'STUDENT@example.test', acceptedAt: null, expiresAt: new Date(Date.now() + 60_000), accessMode: 'SEQUENTIAL', dueAt: null };
+      } },
+      $transaction: async (callback) => callback({
+        courseInvitation: { updateMany: async () => { invitationClaimed = true; return { count: 1 }; } },
+        enrollment: { upsert: async (query) => writes.push(query) },
+        studentNotification: { upsert: async () => {} },
+      }),
+    },
+  });
+  const result = await subject.acceptCourseInvitation(token);
+  assert.equal(result.status, 'success');
+  assert.equal(invitationClaimed, true);
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].create.userId, 'learner-1');
+  assert.equal(writes[0].create.courseId, 'course-1');
+  assert.equal(writes[0].create.accessMode, 'SEQUENTIAL');
 });
 
 test('invitation acceptance rejects an unverified or mismatched account without enrolling it', async () => {

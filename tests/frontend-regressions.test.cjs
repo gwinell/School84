@@ -135,7 +135,7 @@ test("review form validates score and preserves feedback after a failed save", a
   assert.equal(form.type, "form");
 });
 
-test("teacher bulk assignment normalizes addresses and keeps input after API failure", async () => {
+test("teacher bulk invitation form normalizes addresses and keeps input after API failure", async () => {
   const calls = [];
   const h = load("app/teacher/_components/CourseRosterManager.tsx", {
     "@/components/ui/button": { Button: "Button" },
@@ -146,14 +146,14 @@ test("teacher bulk assignment normalizes addresses and keeps input after API fai
   const props = {
     courseId: "course-a", enrollments: [],
     onInvite: async () => ({ status: "error", message: "invite error" }),
-    onBulkAssign: async (input) => { calls.push(input); return { status: "error", message: "bulk error" }; },
+    onBulkInvite: async (input) => { calls.push(input); return { status: "error", message: "bulk error" }; },
     onCancel: async () => ({ status: "success" }), onSetDueDate: async () => ({ status: "success" }),
   };
   let tree = h.render("CourseRosterManager", props);
   const field = find(tree, (n) => n.type === "Textarea");
   field.props.onChange({ target: { value: " A@Example.test,\nb@example.test a@example.test " } });
   tree = h.render("CourseRosterManager", props);
-  const form = find(tree, (n) => n.type === "form" && n.props["aria-label"] === "Массово назначить курс");
+  const form = find(tree, (n) => n.type === "form" && n.props["aria-label"] === "Пригласить учеников списком");
   form.props.onSubmit({ preventDefault() {} });
   await h.flush();
   assert.deepEqual(plain(calls[0]), {

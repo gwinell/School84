@@ -29,20 +29,28 @@ export type EnrollmentOptions = {
   accessMode: "ALL_AT_ONCE" | "SEQUENTIAL";
   dueAt?: string | null;
 };
+export type BulkInvitationResult = {
+  requested: number;
+  invalidCount: number;
+  sent: number;
+  failed: number;
+  emailDelivery: "sent" | "failed" | "partial" | "console";
+  manualInvites: Array<{ email: string; inviteUrl: string }>;
+};
 
 /** Teacher-scoped invitation, bulk assignment, and enrollment management UI. */
 export function CourseRosterManager({
   courseId,
   enrollments,
   onInvite,
-  onBulkAssign,
+  onBulkInvite,
   onCancel,
   onSetDueDate,
 }: {
   courseId: string;
   enrollments: RosterEnrollment[];
   onInvite: (input: EnrollmentOptions & { email: string }) => Promise<RosterActionResult<{ inviteUrl: string | null; alreadyAssigned: boolean; emailDelivery?: "sent" | "failed" | "console" }>>;
-  onBulkAssign: (input: EnrollmentOptions & { emails: string[] }) => Promise<RosterActionResult<{ requested: number }>>;
+  onBulkInvite: (input: EnrollmentOptions & { emails: string[] }) => Promise<RosterActionResult<BulkInvitationResult>>;
   onCancel: (input: { courseId: string; userId: string }) => Promise<RosterActionResult>;
   onSetDueDate: (input: { courseId: string; userId: string; dueAt: string | null }) => Promise<RosterActionResult>;
 }) {
@@ -54,6 +62,7 @@ export function CourseRosterManager({
   const [inviteUrl, setInviteUrl] = useState("");
   const [inviteDelivery, setInviteDelivery] = useState<"sent" | "failed" | "console" | null>(null);
   const [bulkMessage, setBulkMessage] = useState("");
+  const [bulkManualInvites, setBulkManualInvites] = useState<BulkInvitationResult["manualInvites"]>([]);
   const [isPending, startTransition] = useTransition();
   function options(): EnrollmentOptions {
     return {
@@ -98,20 +107,21 @@ export function CourseRosterManager({
     });
   }
 
-  function bulkAssign(event: React.FormEvent<HTMLFormElement>) {
+  function bulkInvite(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const emails = [...new Set(bulkEmails.split(/[\s,;]+/).map((email) => email.trim().toLowerCase()).filter(Boolean))];
     if (!emails.length) return;
     startTransition(async () => {
-      const { data, error } = await tryCatch(onBulkAssign({ ...options(), emails }));
+      const { data, error } = await tryCatch(onBulkInvite({ ...options(), emails }));
       if (error || !data || data.status === "error" || !data.data) {
-        toast.error(data?.message ?? "Не удалось назначить курс");
+        toast.error(data?.message ?? "Не удалось создать приглашения");
         return;
       }
-      const requested = data.data.requested;
-      const message = data.message ?? "Запрос обработан. Доступ предоставлен подходящим аккаунтам.";
+      const result = data.data;
+      const message = data.message ?? "Запрос обработан. Приглашения отправлены или подготовлены для передачи.";
       toast.success(message);
-      setBulkMessage(`${message} Позиции в запросе: ${requested}.`);
+      setBulkMessage(`${message} Адресов: ${result.requested}; отправлено: ${result.sent}; требуется передать вручную: ${result.manualInvites.length}; неверный формат: ${result.invalidCount}.`);
+      setBulkManualInvites(result.manualInvites);
       setBulkEmails("");
       router.refresh();
     });
@@ -186,16 +196,25 @@ export function CourseRosterManager({
           ) : null}
         </form>
 
-        <form onSubmit={bulkAssign} className="space-y-3 rounded-lg border bg-muted/20 p-4" aria-label="Массово назначить курс">
-          <h3 className="font-medium">Массовое назначение</h3>
+        <form onSubmit={bulkInvite} className="space-y-3 rounded-lg border bg-muted/20 p-4" aria-label="Пригласить учеников списком">
+          <h3 className="font-medium">Приглашения по списку</h3>
+          <p className="text-xs text-muted-foreground">Каждому адресу будет отправлена персональная ссылка. Доступ к курсу появится после принятия приглашения.</p>
           <label className="block space-y-1.5 text-sm">
-            <span>Email зарегистрированных учеников</span>
+            <span>Email учеников (до 10 адресов)</span>
             <Textarea value={bulkEmails} onChange={(event) => setBulkEmails(event.target.value)} disabled={isPending} rows={4} placeholder="Можно вставить список, разделённый запятыми или строками" />
           </label>
           <EnrollmentOptionsFields accessMode={accessMode} dueAt={dueAt} disabled={isPending} setAccessMode={setAccessMode} setDueAt={setDueAt} />
-          <Button type="submit" disabled={isPending || !bulkEmails.trim()}>{isPending ? "Назначаем…" : "Назначить список"}</Button>
+          <Button type="submit" disabled={isPending || !bulkEmails.trim()}>{isPending ? "Отправляем…" : "Отправить приглашения"}</Button>
           {bulkMessage ? <p role="status" className="text-sm text-muted-foreground">{bulkMessage}</p> : null}
-          <p className="text-xs text-muted-foreground">Новые адреса используйте через одноразовое приглашение. Массовое назначение связывает только уже зарегистрированные аккаунты.</p>
+          {bulkManualInvites.length ? <div className="space-y-2" aria-label="Ссылки для передачи вручную">
+            {bulkManualInvites.map(({ email, inviteUrl }) => <div key={email} className="flex gap-2">
+              <Input aria-label={`Ссылка приглашения: ${email}`} readOnly value={inviteUrl} onFocus={(event) => event.currentTarget.select()} />
+              <Button type="button" variant="outline" aria-label={`Скопировать приглашение: ${email}`} onClick={async () => {
+                try { await navigator.clipboard.writeText(inviteUrl); toast.success("Ссылка скопирована"); }
+                catch { toast.error("Не удалось скопировать ссылку"); }
+              }}><CopyIcon /></Button>
+            </div>)}
+          </div> : null}
         </form>
       </div>
 

@@ -1,10 +1,11 @@
 "use server";
 
 import {
-  bulkAssignStudents,
+  bulkInviteStudentsToCourse,
   inviteStudentToCourse,
 } from "@/app/admin/courses/[courseId]/assignments/actions";
 import type {
+  BulkInvitationResult,
   EnrollmentOptions,
   RosterActionResult,
 } from "./_components/CourseRosterManager";
@@ -16,9 +17,9 @@ export async function inviteStudentToCourseForRoster(
   return { ...result, data: result.data ?? undefined };
 }
 
-export async function bulkAssignStudentsForRoster(
+export async function bulkInviteStudentsForRoster(
   input: EnrollmentOptions & { emails: string[] },
-): Promise<RosterActionResult<{ requested: number }>> {
-  const result = await bulkAssignStudents(input);
+): Promise<RosterActionResult<BulkInvitationResult>> {
+  const result = await bulkInviteStudentsToCourse(input);
   return { ...result, data: result.data ?? undefined };
 }

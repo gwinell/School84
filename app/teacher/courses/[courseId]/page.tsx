@@ -9,7 +9,7 @@ import { CourseGradebook } from "../../_components/CourseGradebook";
 import { CourseInstructorsManager } from "../../_components/CourseInstructorsManager";
 import { CourseInvitationsList } from "../../_components/CourseInvitationsList";
 import { CourseRosterManager } from "../../_components/CourseRosterManager";
-import { bulkAssignStudentsForRoster, inviteStudentToCourseForRoster } from "../../roster-actions";
+import { bulkInviteStudentsForRoster, inviteStudentToCourseForRoster } from "../../roster-actions";
 import { buttonVariants } from "@/components/ui/button";
 
 export default async function TeacherCoursePage({ params }: { params: Promise<{ courseId: string }> }) {
@@ -49,7 +49,7 @@ export default async function TeacherCoursePage({ params }: { params: Promise<{ 
       courseId={courseId}
       enrollments={enrollments}
       onInvite={inviteStudentToCourseForRoster}
-      onBulkAssign={bulkAssignStudentsForRoster}
+      onBulkInvite={bulkInviteStudentsForRoster}
       onCancel={cancelEnrollment}
       onSetDueDate={setEnrollmentDueDate}
     />

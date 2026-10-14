@@ -48,31 +48,113 @@ export async function assignCourseToStudent(input: unknown) {
 }
 
 export async function bulkAssignStudents(input: unknown) {
-  const parsed = enrollmentOptions.extend({ emails: z.array(z.string()).max(100).optional(), userIds: z.array(z.string().min(1)).max(100).optional() }).safeParse(input);
-  if (!parsed.success || (!parsed.data.emails?.length && !parsed.data.userIds?.length) || (parsed.success && (parsed.data.emails?.length ?? 0) + (parsed.data.userIds?.length ?? 0) > 100)) return errorResponse("Добавьте до 100 email или учеников", null);
+  const parsed = enrollmentOptions.extend({ userIds: z.array(z.string().min(1)).max(100) }).safeParse(input);
+  if (!parsed.success || !parsed.data.userIds.length) return errorResponse("Добавьте до 100 учеников", null);
   const { session: teacherSession, course } = await requireCourseTeacher(parsed.data.courseId);
   if (!(await canBulkAssignStudents(teacherSession.user.id))) {
     return errorResponse("Не удалось обработать назначение. Повторите позже.", null);
   }
-  const emails: string[] = [];
-  for (const raw of parsed.data.emails ?? []) {
-    const email = emailSchema.safeParse(raw);
-    if (email.success) emails.push(email.data);
-  }
-  const users = await prisma.user.findMany({ where: { OR: [{ id: { in: parsed.data.userIds ?? [] } }, { email: { in: emails } }] }, select: { id: true, email: true, role: true, enrollment: { where: { courseId: course.id }, select: { status: true } } } });
-  const existing = new Map(users.filter((user) => user.role !== "admin" && user.role !== "teacher").map((user) => [user.id, user]));
-  const resolved = users.filter((user) => existing.has(user.id));
+  const userIds = [...new Set(parsed.data.userIds)];
+  const users = await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, role: true, enrollment: { where: { courseId: course.id }, select: { status: true } } } });
+  const eligible = users.filter((user) => user.role !== "admin" && user.role !== "teacher");
   const dueAt = parsed.data.dueAt === undefined ? undefined : parsed.data.dueAt ? new Date(parsed.data.dueAt) : null;
   await prisma.$transaction(async (tx) => {
-    for (const user of resolved) {
+    for (const user of eligible) {
       if (user.enrollment.some((enrollment) => enrollment.status === "Active")) continue;
       await tx.enrollment.upsert({ where: { userId_courseId: { userId: user.id, courseId: course.id } }, create: { userId: user.id, courseId: course.id, status: "Active", amount: 0, accessMode: parsed.data.accessMode, dueAt: dueAt ?? null }, update: { status: "Active", accessMode: parsed.data.accessMode, ...(dueAt === undefined ? {} : { dueAt }) } });
       await tx.studentNotification.upsert({ where: { userId_courseId_type: { userId: user.id, courseId: course.id, type: "COURSE_ASSIGNED" } }, create: { userId: user.id, courseId: course.id, type: "COURSE_ASSIGNED", title: "Вам назначен курс", body: "Новый курс доступен в личном кабинете." }, update: { readAt: null } });
     }
   });
   revalidatePath(`/teacher/courses/${course.id}`); revalidatePath("/dashboard");
-  const requested = (parsed.data.emails?.length ?? 0) + (parsed.data.userIds?.length ?? 0);
-  return successResponse("Запрос обработан. Доступ предоставлен подходящим аккаунтам.", { requested });
+  return successResponse("Запрос обработан. Доступ предоставлен подходящим аккаунтам.", { requested: parsed.data.userIds.length });
+}
+
+export async function bulkInviteStudentsToCourse(input: unknown) {
+  const parsed = enrollmentOptions.extend({ emails: z.array(z.string()).min(1).max(10) }).safeParse(input);
+  if (!parsed.success) return errorResponse("Укажите не более 10 email-адресов", null);
+
+  const validEmails = new Set<string>();
+  let invalidCount = 0;
+  for (const raw of parsed.data.emails) {
+    const result = emailSchema.safeParse(raw);
+    if (result.success) validEmails.add(result.data); else invalidCount++;
+  }
+  const emails = [...validEmails];
+  if (!emails.length) return errorResponse("Проверьте формат email-адресов", null);
+
+  const { session: teacherSession, course } = await requireCourseTeacher(parsed.data.courseId);
+  // Preflight every unique, valid recipient before creating any records or
+  // sending mail. A denied bucket must not result in a partially issued batch.
+  for (const email of emails) {
+    if (!(await canSendCourseInvitation({ teacherId: teacherSession.user.id, email }))) {
+      return errorResponse("Не удалось обработать приглашения. Повторите позже.", null);
+    }
+  }
+
+  const dueAt = parsed.data.dueAt ? new Date(parsed.data.dueAt) : null;
+  const invitations = emails.map((email) => {
+    const token = randomBytes(32).toString("base64url");
+    return {
+      email,
+      token,
+      inviteUrl: `${env.BETTER_AUTH_URL.replace(/\/$/, "")}/invite/${token}`,
+      record: {
+        courseId: course.id,
+        email,
+        tokenHash: createHash("sha256").update(token).digest("hex"),
+        accessMode: parsed.data.accessMode,
+        dueAt,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        createdById: teacherSession.user.id,
+      },
+    };
+  });
+
+  await prisma.$transaction(async (tx) => {
+    for (const invitation of invitations) {
+      await tx.courseInvitation.deleteMany({ where: { courseId: course.id, email: invitation.email, acceptedAt: null } });
+      await tx.courseInvitation.create({ data: invitation.record });
+    }
+  });
+
+  let sent = 0;
+  let failed = 0;
+  const manualInvites: Array<{ email: string; inviteUrl: string }> = [];
+  if (env.AUTH_EMAIL_MODE === "console") {
+    for (const invitation of invitations) {
+      console.info(`[School 84 local invitation] ${invitation.email}: ${invitation.inviteUrl}`);
+      manualInvites.push({ email: invitation.email, inviteUrl: invitation.inviteUrl });
+    }
+  } else {
+    for (const invitation of invitations) {
+      try {
+        const result = await resend.emails.send({
+          from: env.EMAIL_FROM,
+          to: [invitation.email],
+          subject: `Приглашение на курс «${course.title}»`,
+          text: `Вас пригласили на курс «${course.title}». Откройте ссылку, чтобы принять приглашение: ${invitation.inviteUrl}\n\nСсылка действует 7 дней и может быть использована один раз.`,
+          html: `<p>Вас пригласили на курс «${escapeHtml(course.title)}».</p><p><a href="${escapeHtml(invitation.inviteUrl)}">Принять приглашение</a></p><p>Ссылка действует 7 дней и может быть использована один раз.</p>`,
+        });
+        if (result.error) throw result.error;
+        sent++;
+      } catch (error) {
+        console.error("Failed to send course invitation email", error);
+        failed++;
+        manualInvites.push({ email: invitation.email, inviteUrl: invitation.inviteUrl });
+      }
+    }
+  }
+
+  revalidatePath(`/teacher/courses/${course.id}`);
+  const emailDelivery: "console" | "sent" | "failed" | "partial" = env.AUTH_EMAIL_MODE === "console" ? "console" : failed === 0 ? "sent" : sent === 0 ? "failed" : "partial";
+  return successResponse("Запрос обработан. Приглашения отправлены или подготовлены для передачи; ссылка действует 7 дней.", {
+    requested: emails.length,
+    invalidCount,
+    sent,
+    failed,
+    emailDelivery,
+    manualInvites,
+  });
 }
 
 export async function inviteStudentToCourse(input: unknown) {
