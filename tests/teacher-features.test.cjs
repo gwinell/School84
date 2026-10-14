@@ -8,7 +8,7 @@ const ts = require('typescript');
 function load(file, mocks = {}) {
   const output = ts.transpileModule(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
   const exports = {};
-  vm.runInNewContext(output, { exports, require(name) { if (name in mocks) return mocks[name]; if (name === 'server-only') return {}; if (name === 'next/navigation') return { redirect: () => { throw Error('REDIRECT'); }, notFound: () => { throw Error('NOT_FOUND'); } }; return require(name); }, Date, Set, Map, Promise }, { filename: file });
+  vm.runInNewContext(output, { exports, require(name) { if (name in mocks) return mocks[name]; if (name === 'server-only') return {}; if (name === 'next/navigation') return { redirect: () => { throw Error('REDIRECT'); }, notFound: () => { throw Error('NOT_FOUND'); } }; if (name === '@/lib/resend') return { resend: { emails: { send: async () => ({}) } } }; return require(name); }, Date, Set, Map, Promise }, { filename: file });
   return exports;
 }
 test('course authorization permits only admin or assigned teacher', async () => {

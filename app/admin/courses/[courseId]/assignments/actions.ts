@@ -8,6 +8,7 @@ import { requireTeacher } from "@/app/data/teacher/require-teacher";
 import { requireUser } from "@/app/data/user/require-user";
 import prisma from "@/lib/prisma";
 import { env } from "@/lib/env";
+import { resend } from "@/lib/resend";
 import { errorResponse, successResponse } from "@/lib/responses";
 
 const enrollmentOptions = z.object({ courseId: z.string().min(1), accessMode: z.enum(["ALL_AT_ONCE", "SEQUENTIAL"]).default("ALL_AT_ONCE"), dueAt: z.string().datetime().optional().nullable() });
@@ -90,7 +91,48 @@ export async function inviteStudentToCourse(input: unknown) {
     await tx.courseInvitation.deleteMany({ where: { courseId: course.id, email: email.data, acceptedAt: null } });
     await tx.courseInvitation.create({ data: { courseId: course.id, email: email.data, tokenHash: createHash("sha256").update(token).digest("hex"), accessMode: parsed.data.accessMode, dueAt, expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), createdById: teacherSession.user.id } });
   });
-  return successResponse("Приглашение создано на 7 дней", { inviteUrl: `${env.BETTER_AUTH_URL.replace(/\/$/, "")}/invite/${token}`, alreadyAssigned: false });
+  const inviteUrl = `${env.BETTER_AUTH_URL.replace(/\/$/, "")}/invite/${token}`;
+
+  // Keep the invitation durable before sending. A mail provider failure must
+  // never destroy the only usable invite link; the teacher can share it from
+  // the response UI and retry by creating a fresh invitation if needed.
+  if (env.AUTH_EMAIL_MODE === "console") {
+    console.info(`[School 84 local invitation] ${email.data}: ${inviteUrl}`);
+    return successResponse("Приглашение создано на 7 дней; ссылка выведена в локальную консоль, письмо не отправлялось", {
+      inviteUrl,
+      alreadyAssigned: false,
+      emailDelivery: "console" as const,
+    });
+  }
+
+  try {
+    const result = await resend.emails.send({
+      from: env.EMAIL_FROM,
+      to: [email.data],
+      subject: `Приглашение на курс «${course.title}»`,
+      text: `Вас пригласили на курс «${course.title}». Откройте ссылку, чтобы принять приглашение: ${inviteUrl}\n\nСсылка действует 7 дней и может быть использована один раз.`,
+      html: `<p>Вас пригласили на курс «${escapeHtml(course.title)}».</p><p><a href="${escapeHtml(inviteUrl)}">Принять приглашение</a></p><p>Ссылка действует 7 дней и может быть использована один раз.</p>`,
+    });
+    if (result.error) throw result.error;
+    return successResponse("Приглашение создано и отправлено на email; ссылка действует 7 дней", {
+      inviteUrl,
+      alreadyAssigned: false,
+      emailDelivery: "sent" as const,
+    });
+  } catch (error) {
+    console.error("Failed to send course invitation email", error);
+    return successResponse("Приглашение создано, но письмо не отправлено. Скопируйте ссылку и передайте её ученику вручную", {
+      inviteUrl,
+      alreadyAssigned: false,
+      emailDelivery: "failed" as const,
+    });
+  }
+}
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  })[character]!);
 }
 
 export async function acceptCourseInvitation(token: string) {

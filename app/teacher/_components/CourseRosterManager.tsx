@@ -41,7 +41,7 @@ export function CourseRosterManager({
 }: {
   courseId: string;
   enrollments: RosterEnrollment[];
-  onInvite: (input: EnrollmentOptions & { email: string }) => Promise<RosterActionResult<{ inviteUrl: string | null; alreadyAssigned: boolean }>>;
+  onInvite: (input: EnrollmentOptions & { email: string }) => Promise<RosterActionResult<{ inviteUrl: string | null; alreadyAssigned: boolean; emailDelivery?: "sent" | "failed" | "console" }>>;
   onBulkAssign: (input: EnrollmentOptions & { emails: string[] }) => Promise<RosterActionResult<{ created: number; alreadyAssigned: number; invalid: string[] }>>;
   onCancel: (input: { courseId: string; userId: string }) => Promise<RosterActionResult>;
   onSetDueDate: (input: { courseId: string; userId: string; dueAt: string | null }) => Promise<RosterActionResult>;
@@ -52,6 +52,7 @@ export function CourseRosterManager({
   const [inviteEmail, setInviteEmail] = useState("");
   const [bulkEmails, setBulkEmails] = useState("");
   const [inviteUrl, setInviteUrl] = useState("");
+  const [inviteDelivery, setInviteDelivery] = useState<"sent" | "failed" | "console" | null>(null);
   const [bulkMessage, setBulkMessage] = useState("");
   const [isPending, startTransition] = useTransition();
   function options(): EnrollmentOptions {
@@ -83,8 +84,17 @@ export function CourseRosterManager({
         return;
       }
       setInviteUrl(data.data.inviteUrl);
+      setInviteDelivery(data.data.emailDelivery ?? null);
       setInviteEmail("");
-      toast.success(data.message ?? "Одноразовое приглашение готово");
+      if (data.data.emailDelivery === "failed") {
+        toast.warning("Письмо не отправлено. Ссылка на приглашение сохранена ниже.");
+      } else if (data.data.emailDelivery === "sent") {
+        toast.success("Приглашение отправлено ученику на email");
+      } else if (data.data.emailDelivery === "console") {
+        toast.info("Локальный режим: письмо не отправлено, ссылка выведена в консоль");
+      } else {
+        toast.success(data.message ?? "Одноразовое приглашение готово");
+      }
     });
   }
 
@@ -144,7 +154,7 @@ export function CourseRosterManager({
 
       <div className="grid gap-5 xl:grid-cols-2">
         <form onSubmit={invite} className="space-y-3 rounded-lg border bg-muted/20 p-4" aria-label="Пригласить ученика">
-          <div><h3 className="font-medium">Одноразовое приглашение</h3><p className="mt-1 text-xs text-muted-foreground">Email автоматически не отправляется. После создания скопируйте ссылку и передайте её ученику.</p></div>
+          <div><h3 className="font-medium">Одноразовое приглашение</h3><p className="mt-1 text-xs text-muted-foreground">В режиме Resend ссылка автоматически отправляется на email. Если доставка не удалась или включён локальный режим, ссылку можно скопировать и передать вручную.</p></div>
           <label className="block space-y-1.5 text-sm">
             <span>Email ученика</span>
             <Input type="email" required value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} disabled={isPending} placeholder="student@example.com" />
@@ -155,7 +165,15 @@ export function CourseRosterManager({
           </Button>
           {inviteUrl ? (
             <div className="space-y-2 rounded-md border bg-background p-3">
-              <p className="text-sm font-medium">Скопируйте и отправьте ссылку ученику. Она одноразовая и ограничена по времени.</p>
+              <p className="text-sm font-medium">
+                {inviteDelivery === "sent"
+                  ? "Письмо отправлено. При необходимости можно также скопировать ссылку. Она одноразовая и действует 7 дней."
+                  : inviteDelivery === "failed"
+                    ? "Письмо не отправлено. Скопируйте ссылку и передайте её ученику вручную. Она одноразовая и действует 7 дней."
+                    : inviteDelivery === "console"
+                      ? "Локальный режим: письмо не отправлено. Ссылка выведена в консоль и действует 7 дней."
+                      : "Скопируйте ссылку и передайте её ученику. Она одноразовая и действует 7 дней."}
+              </p>
               <div className="flex gap-2">
                 <Input aria-label="Ссылка приглашения" readOnly value={inviteUrl} onFocus={(event) => event.currentTarget.select()} />
                 <Button type="button" variant="outline" aria-label="Скопировать ссылку приглашения" onClick={async () => {

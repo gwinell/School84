@@ -27,6 +27,9 @@ function load(file, mocks = {}, globals = {}) {
         errorResponse: (message, data) => ({ status: 'error', message, data }),
         successResponse: (message, data) => ({ status: 'success', message, data }),
       };
+      if (name === '@/lib/resend') return { resend: { emails: { send: async () => ({}) } } };
+      if (name === '@/app/data/teacher/require-teacher') return { requireTeacher: async () => ({ user: { id: 'teacher-1', role: 'teacher' } }) };
+      if (name === '@/app/data/user/require-user') return { requireUser: async () => ({ user: { id: 'student-1', role: 'user' } }) };
       return require(name);
     },
     Date, Map, Set, Object, console, ...globals,
@@ -188,6 +191,65 @@ test('invitation acceptance rejects an unverified or mismatched account without 
     .acceptCourseInvitation('valid-token-value-that-is-long-enough-123456');
   assert.equal(mismatch.status, 'error');
   assert.equal(enrollments, 0);
+});
+
+function invitationAction({ emailMode = 'resend', mailResult = {}, mailThrows = false } = {}) {
+  const events = [];
+  let invitationRecord;
+  const action = load(teacherActions, {
+    '@/app/data/teacher/require-course-teacher': { requireCourseTeacher: async () => ({
+      session: { user: { id: 'teacher-1', role: 'teacher' } },
+      course: { id: 'course-1', title: 'Course <One>' },
+    }) },
+    '@/lib/env': { env: { BETTER_AUTH_URL: 'https://school.example.test', EMAIL_FROM: 'school@example.test', AUTH_EMAIL_MODE: emailMode } },
+    '@/lib/resend': { resend: { emails: { send: async (message) => { events.push({ type: 'mail', message }); if (mailThrows) throw Error('provider offline'); return mailResult; } } } },
+    '@/lib/prisma': {
+      user: { findFirst: async () => null },
+      $transaction: async (callback) => callback({
+        courseInvitation: {
+          deleteMany: async () => { events.push({ type: 'replace' }); },
+          create: async ({ data }) => { invitationRecord = data; events.push({ type: 'create' }); },
+        },
+      }),
+    },
+  }, { console: { info: (message) => events.push({ type: 'console', message }), error: (message) => events.push({ type: 'error', message }) } });
+  return { action: action.inviteStudentToCourse, events, invitationRecord: () => invitationRecord };
+}
+
+test('course invitation persists first, then sends a Resend email with an escaped title and usable link', async () => {
+  const fixture = invitationAction();
+  const result = await fixture.action({ courseId: 'course-1', email: 'new-student@example.test', accessMode: 'ALL_AT_ONCE' });
+  assert.equal(result.status, 'success');
+  assert.equal(result.data.emailDelivery, 'sent');
+  assert.match(result.data.inviteUrl, /^https:\/\/school\.example\.test\/invite\/[A-Za-z0-9_-]+$/);
+  assert.ok(fixture.invitationRecord().tokenHash);
+  assert.deepEqual(fixture.events.map((event) => event.type), ['replace', 'create', 'mail']);
+  const mail = plain(fixture.events.at(-1).message);
+  assert.deepEqual(mail.to, ['new-student@example.test']);
+  assert.equal(mail.from, 'school@example.test');
+  assert.match(mail.text, new RegExp(result.data.inviteUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.match(mail.html, /Course &lt;One&gt;/);
+  assert.doesNotMatch(mail.html, /Course <One>/);
+});
+
+test('provider failure leaves the invitation and link available for manual delivery', async () => {
+  const fixture = invitationAction({ mailResult: { error: { message: 'provider unavailable' } } });
+  const result = await fixture.action({ courseId: 'course-1', email: 'new-student@example.test', accessMode: 'SEQUENTIAL' });
+  assert.equal(result.status, 'success');
+  assert.equal(result.data.emailDelivery, 'failed');
+  assert.match(result.data.inviteUrl, /\/invite\//);
+  assert.ok(fixture.invitationRecord());
+  assert.deepEqual(fixture.events.map((event) => event.type), ['replace', 'create', 'mail', 'error']);
+});
+
+test('console email mode logs the invite locally and never calls the email provider', async () => {
+  const fixture = invitationAction({ emailMode: 'console' });
+  const result = await fixture.action({ courseId: 'course-1', email: 'local-student@example.test', accessMode: 'ALL_AT_ONCE' });
+  assert.equal(result.status, 'success');
+  assert.equal(result.data.emailDelivery, 'console');
+  assert.match(fixture.events.find((event) => event.type === 'console').message, new RegExp(result.data.inviteUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.equal(fixture.events.some((event) => event.type === 'mail'), false);
+  assert.ok(fixture.invitationRecord());
 });
 
 test('learner quiz history query is scoped to the signed-in user and active course enrollment', async () => {

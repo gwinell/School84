@@ -11,7 +11,7 @@ import type {
 
 export async function inviteStudentToCourseForRoster(
   input: EnrollmentOptions & { email: string },
-): Promise<RosterActionResult<{ inviteUrl: string | null; alreadyAssigned: boolean }>> {
+): Promise<RosterActionResult<{ inviteUrl: string | null; alreadyAssigned: boolean; emailDelivery?: "sent" | "failed" | "console" }>> {
   const result = await inviteStudentToCourse(input);
   return { ...result, data: result.data ?? undefined };
 }
