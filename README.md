@@ -38,7 +38,7 @@ docker-compose up --build -d app python-runner
 docker-compose --profile local-admin run --rm local-admin
 ```
 
-This sequence is for a **new, empty local database only**. `schema-init` runs Prisma `db push`; never run it against an existing school database. The app and runner should be published only on a trusted machine: the runner has access to the Docker socket, and the default Compose values are demo credentials rather than production secrets. Keep the database port and app bound to loopback unless a separately reviewed production deployment adds TLS, a firewall, real authentication providers, email delivery, and secret management.
+This sequence is for a **new, empty local database only**. `schema-init` runs Prisma `db push`; never run it against an existing school database. Existing installations should follow [the tenant database upgrade runbook](./docs/TENANCY_UPGRADE.md), which performs the one-time legacy data backfill. The app and runner should be published only on a trusted machine: the runner has access to the Docker socket, and the default Compose values are demo credentials rather than production secrets. Keep the database port and app bound to loopback unless a separately reviewed production deployment adds TLS, a firewall, real authentication providers, email delivery, and secret management.
 
 On the local Docker login page, use **Войти как преподаватель** or **Войти как ученик** for one-click demo access. The demo accounts are `admin@school84.local` and `student@school84.local`; the learner has the Python course with sample progress and activity. This shortcut is enabled only in the local Docker profile. To disable it, set `DEMO_LOGIN_ENABLED=false`. Regular email OTP login remains available; codes are printed in app logs:
 
@@ -107,17 +107,17 @@ To replace the active local database, take and verify another backup of its curr
 
 ```bash
 docker-compose exec -T db sh -c 'pg_restore --list' < "$backup" >/dev/null
-docker-compose stop app
 printf 'This replaces the active database. Type RESTORE school84 to continue: '
 read -r confirmation
 [ "$confirmation" = 'RESTORE school84' ] || { echo 'Restore cancelled'; exit 1; }
+docker-compose stop app
 docker-compose exec -T db sh -c 'dropdb -U "$POSTGRES_USER" --if-exists "$POSTGRES_DB"'
 docker-compose exec -T db sh -c 'createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'
 docker-compose exec -T db sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --exit-on-error' < "$backup"
 docker-compose up -d app
 ```
 
-Do not use `docker-compose down -v` as a rollback or update step. Schema-changing releases need a reviewed, versioned migration and a rehearsed backup/restore plan; the current project has no migration history, so an existing school database must not be upgraded with `prisma db push`.
+Do not use `docker-compose down -v` as a rollback or update step. The first tenant-aware release changes the database and application together. An old non-tenant app image is only a viable rollback while the database still contains one school; after other schools have been onboarded, rolling back to code that does not scope data by organization is unsafe. Prefer a forward fix. Restoring the pre-upgrade backup loses changes made after that backup, so treat it as a deliberate disaster-recovery action. Follow [the tenant database upgrade runbook](./docs/TENANCY_UPGRADE.md) for existing installations; never use `prisma db push` to upgrade a populated school database.
 
 ## Manual Node setup
 
@@ -138,7 +138,7 @@ pnpm dev
 
 The app is available at [http://localhost:3000](http://localhost:3000).
 
-The Python runner is included in the Docker Compose stack. For a manual Node setup, configure `PYTHON_RUNNER_URL` and `PYTHON_RUNNER_TOKEN` to point to a separately started runner. Python code runs in disposable containers with networking disabled, a read-only root filesystem, dropped Linux capabilities, and CPU, memory, process, and time limits. Keep the runner's Docker socket accessible only to this trusted local service.
+Run `pnpm exec prisma db push` only for a fresh, empty local database. The Python runner is included in the Docker Compose stack. For a manual Node setup, configure `PYTHON_RUNNER_URL` and `PYTHON_RUNNER_TOKEN` to point to a separately started runner. Python code runs in disposable containers with networking disabled, a read-only root filesystem, dropped Linux capabilities, and CPU, memory, process, and time limits. Keep the runner's Docker socket accessible only to this trusted local service.
 
 Activity time is recorded in 20-second batches while the lesson tab is visible and the learner has interacted with the page within the previous minute. Dates in the activity calendar use UTC.
 
