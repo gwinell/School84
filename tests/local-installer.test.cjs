@@ -29,7 +29,7 @@ case "$*" in
   *"SELECT count(*) FROM pg_tables"*)
     if [ -f "$FAKE_SCHEMA_STATE" ]; then printf '16\\n'; else printf '0\\n'; fi
     exit 0 ;;
-  *"to_regclass"*) printf 't\\n'; exit 0 ;;
+  *"information_schema.tables"*) printf 't\\n'; exit 0 ;;
   *"--profile init-schema run"*) touch "$FAKE_SCHEMA_STATE"; exit 0 ;;
   *"--profile local-admin run"*)
     if [ ! -f "$FAKE_SEED_MARKER" ]; then touch "$FAKE_SEED_MARKER"; fi
@@ -146,7 +146,7 @@ test('reopening an initialized install preserves settings, schema, and learner p
     assert.equal(schemaRuns.length, 1, 'schema sync happens only for the initially empty database');
     const seedRuns = calls.filter((call) => call.includes('--profile local-admin run --rm local-admin'));
     assert.equal(seedRuns.length, 1, 'demo seed runs once on the initially empty database');
-    assert.match(calls.join('\n'), /to_regclass/);
+    assert.match(calls.join('\n'), /information_schema\.tables/);
 
     const seedSql = fs.readFileSync(path.join(repository, 'scripts/local-demo-seed.psql'), 'utf8');
     assert.match(seedSql, /school84_local_install_state/);

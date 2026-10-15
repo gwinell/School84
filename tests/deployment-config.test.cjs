@@ -65,6 +65,16 @@ test('Compose keeps the fixed-code demo login opt-in and isolates the runner net
   assert.match(compose, /runner-isolated:\n\s+internal: true/);
 });
 
+test('Compose mounts the fresh-install marker into the database used by the launcher', () => {
+  const compose = fs.readFileSync(path.join(__dirname, '..', 'docker-compose.yml'), 'utf8');
+  const dbStart = compose.indexOf('\n  db:\n');
+  const appStart = compose.indexOf('\n  app:\n');
+  assert.ok(dbStart >= 0 && appStart > dbStart, 'database service exists before the app service');
+
+  const db = compose.slice(dbStart, appStart);
+  assert.match(db, /\.\/scripts\/local-install-state\.psql:\/local-install-state\.psql:ro/);
+});
+
 test('CI validates the runner and sandbox image builds', () => {
   const workflow = fs.readFileSync(path.join(__dirname, '..', '.github/workflows/ci.yml'), 'utf8');
   assert.match(workflow, /docker compose --profile build-image build python-runner python-sandbox-image/);
