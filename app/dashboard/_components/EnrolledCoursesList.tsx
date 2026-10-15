@@ -1,4 +1,5 @@
 import { BookOpenIcon } from "lucide-react";
+import Link from "next/link";
 
 import { EmptyState } from "@/components/general/EmptyState";
 import type { tEnrolledCourse } from "@/app/data/user/get-my-enrolled-courses";
@@ -16,7 +17,12 @@ export function EnrolledCoursesList({ courses }: EnrolledCoursesListProps) {
         fill
         icon={BookOpenIcon}
         title="No courses yet"
-        description="Your administrator will assign courses to your account."
+        description="Import a prepared course package to start learning on your own, or join a school to access its courses."
+        action={
+          <Link href="/dashboard/import" className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90">
+            Import a course
+          </Link>
+        }
       />
     );
   }
