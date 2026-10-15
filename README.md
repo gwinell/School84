@@ -4,56 +4,99 @@
 
 <h1 align="center">SchoolSphere</h1>
 
-<p align="center">A self-hosted, multi-school learning platform for independent schools, local learning groups, and course creators.</p>
+<p align="center"><strong>One learning platform for a local school or your own self-guided study.</strong></p>
 
 <p align="center">
-  <a href="https://github.com/gwinell/School84/actions/workflows/ci.yml?query=branch%3Aaudit%2Fintegration"><img alt="CI" src="https://github.com/gwinell/School84/actions/workflows/ci.yml/badge.svg?branch=audit/integration"></a>
+  Build and teach courses with your school, or run SchoolSphere on your own computer and learn from portable course bundles.
+</p>
+
+<p align="center">
+  <a href="https://github.com/gwinell/School84/actions/workflows/ci.yml?query=branch%3Amain"><img alt="CI status" src="https://github.com/gwinell/School84/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/github/license/gwinell/School84"></a>
   <img alt="Node.js 22" src="https://img.shields.io/badge/Node.js-22-339933?logo=node.js&logoColor=white">
   <img alt="pnpm 11.25" src="https://img.shields.io/badge/pnpm-11.25-F69220?logo=pnpm&logoColor=white">
 </p>
 
-SchoolSphere is the School84 fork of [KnowSphere](https://github.com/billalben/KnowSphere), adapted for multiple independent schools. Each school manages its own staff, learners, courses, and enrollments. The project is self-hosted: it does not provide a hosted service.
+<p align="center">
+  <a href="#for-a-school">For a school</a> ·
+  <a href="#for-an-independent-learner">For an independent learner</a> ·
+  <a href="#screenshots">Screenshots</a> ·
+  <a href="#get-started">Get started</a>
+</p>
 
-> **Project status:** actively developed. Before using real learner data, configure production authentication, email, storage, TLS, backups, and a trusted Python runner. See [deployment and upgrade notes](docs/LOCAL_DEVELOPMENT.md) and the [tenancy upgrade guide](docs/TENANCY_UPGRADE.md).
+SchoolSphere is a self-hosted learning platform, adapted from the [KnowSphere project](https://github.com/billalben/KnowSphere). You host and operate it; this repository does not provide a hosted service.
 
-## What you can do
+## Choose how to use SchoolSphere
 
-- **School owners and administrators** create a school, invite staff and learners, manage courses, assign students, and review progress.
-- **Teachers** author lessons and assessments, manage assigned course rosters, set due dates, review submissions, and import/export portable course packages.
-- **Learners** follow assigned courses, complete quizzes and Python or JavaScript exercises, see feedback and progress, and resume where they left off.
-- **Independent schools** share one installation while keeping course catalogs, membership, and learning access scoped to each school. The same course slug can exist in different schools.
+### For a school
 
-| Role | Access |
+Host a branded online school for a local learning group. Invite teachers and learners, organize courses, assign course access, and follow learner submissions and progress. Multiple schools can share one installation while their members, courses, and enrollments remain scoped to their own school.
+
+Start with [Local Development and Operations](docs/LOCAL_DEVELOPMENT.md) for setup, deployment, backups, and updates. Before using real learner data, configure production authentication, email, storage, TLS, backups, and a trusted code runner. Review the [tenancy upgrade guide](docs/TENANCY_UPGRADE.md) before updating an existing installation.
+
+### For an independent learner
+
+Run SchoolSphere on your own computer, import a prepared `.s84course` bundle, and study at your own pace. No Git or terminal setup is required for the guided Windows and macOS launchers. You need Docker Desktop installed once.
+
+1. Download and unzip this repository.
+2. Open **Start SchoolSphere** for your operating system and wait for the first setup to finish.
+3. Open the local site and sign in with the demo learner shortcut.
+4. Import a course bundle from the learner area and continue whenever you like.
+
+Follow the [plain-language personal install guide](docs/LOCAL_PERSONAL_INSTALL_RU.md) for setup steps, troubleshooting, and stopping the app without deleting your courses or progress. The personal setup is intended for this computer only and must not be exposed to the public internet.
+
+Course bundles can be created in the teacher area or prepared from another GitHub repository with an external coding agent. SchoolSphere imports the resulting package; it does not convert source repositories itself. See the [course package format](docs/COURSE_PACKAGE_FORMAT.md), [agent conversion workflow](docs/COURSE_PACKAGE_AGENT_WORKFLOW.md), and [example bundle](docs/examples/minimal-course.s84course).
+
+## What each role can do
+
+| Role | Main capabilities |
 | --- | --- |
-| `OWNER` | Manages school members, roles, invitations, and courses. |
-| `ADMIN` | Manages school members, invitations, and courses; owner-only actions stay with the owner. |
-| `TEACHER` | Authors and manages courses assigned to them in that school. |
-| `STUDENT` | Studies courses assigned to them and sees their own progress and feedback. |
-| Platform administrator | Performs installation-wide administration; this is separate from school membership. |
+| **Owner** | Manage school members, roles, invitations, and courses. |
+| **Administrator** | Manage school members, invitations, and courses; owner-only actions remain with the owner. |
+| **Teacher** | Create and manage assigned courses, lessons, assessments, rosters, deadlines, and reviews. Import and export portable course packages. |
+| **Learner** | Study assigned courses, complete quizzes and coding exercises, review feedback and progress, and resume learning. Personal installs also support importing a prepared course. |
+| **Platform administrator** | Perform installation-wide administration, separate from membership in an individual school. |
 
-Invitations use verified accounts and one-time links. A person's access in one school does not grant access to another school's courses or learners.
+Invitations use verified accounts and one-time links. Access in one school does not grant access to another school's courses or learners.
 
-## Quick start
+## Screenshots
 
-For personal learning, install Docker Desktop, download and unzip this repository, then double-click **Start SchoolSphere** (`.command` on macOS, `.bat` on Windows; Linux users can run `scripts/local-school.sh`). The first launch prepares the app, creates local settings, initializes a fresh database, opens the site, and signs you in with the demo learner shortcut. No Git or terminal setup is needed on Windows; macOS may ask you to confirm opening the launcher the first time. To stop without removing courses or progress, double-click **Stop SchoolSphere**. See the [plain-language personal install guide](docs/LOCAL_PERSONAL_INSTALL_RU.md).
+The screenshots below show the learner journey and the tools used to create and bring courses into SchoolSphere.
 
-The local app and code runner are for this trusted computer only. Services bind to loopback; do not expose this demo configuration to the public internet. The demo login is deliberately local-only. For a school installation, manual setup, backup/restore, or updates, see [Local Development and Operations](docs/LOCAL_DEVELOPMENT.md).
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/learner-dashboard.png"><img src="docs/screenshots/learner-dashboard.png" alt="SchoolSphere learner dashboard showing enrolled courses and learning progress" width="100%"></a><br>
+      <strong>Learner dashboard</strong><br>See courses and pick up your learning.
+    </td>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/course-player.png"><img src="docs/screenshots/course-player.png" alt="SchoolSphere course player displaying a lesson and learner activity" width="100%"></a><br>
+      <strong>Course player</strong><br>Work through lessons, quizzes, and coding exercises.
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/course-management.png"><img src="docs/screenshots/course-management.png" alt="SchoolSphere course management screen showing course and learner tools" width="100%"></a><br>
+      <strong>Course management</strong><br>Manage learners, invitations, access, and course activity.
+    </td>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/course-import.png"><img src="docs/screenshots/course-import.png" alt="SchoolSphere course import screen for a portable course bundle" width="100%"></a><br>
+      <strong>Course import</strong><br>Bring a prepared course bundle into a learning space.
+    </td>
+  </tr>
+</table>
 
-Course authors can import or export `.s84course` bundles from the teacher area. The package manifest, media layout, Python/JavaScript checkers, and optional progress file are documented in the [Course Package Format](docs/COURSE_PACKAGE_FORMAT.md). Learners can also import a prepared package into a personal learning space. Converting a source GitHub repository into a course is an external agent-assisted preparation step; the app imports the resulting package and does not convert repositories itself. See the [agent conversion workflow](docs/COURSE_PACKAGE_AGENT_WORKFLOW.md) and run `pnpm course-package:validate path/to/course.s84course` before importing.
+## Get started
 
-## Technology
+### Personal computer
 
-- Next.js App Router, React, and TypeScript
-- Tailwind CSS and Base UI/shadcn components
-- PostgreSQL and Prisma
-- better-auth, email OTP, and GitHub OAuth
-- S3-compatible course media storage
-- Isolated Python execution through a dedicated runner service
+Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) once, then use the [personal install guide](docs/LOCAL_PERSONAL_INSTALL_RU.md). The included launchers prepare the app and local database, then open SchoolSphere in your browser.
 
-## Development and tests
+### School deployment or development
 
-Requirements for the application toolchain: Node.js 22 and pnpm 11.25. Copy `.env.example` to `.env`, set the required local values, then install dependencies and generate Prisma Client:
+For the application toolchain, use Node.js 22 and pnpm 11.25. The full setup and operations instructions are in [Local Development and Operations](docs/LOCAL_DEVELOPMENT.md).
+
+To prepare a development environment:
 
 ```bash
 pnpm install --frozen-lockfile
@@ -72,22 +115,27 @@ pnpm exec prisma validate
 pnpm build
 ```
 
-The PostgreSQL tenancy test must use a disposable database named `school84_tenant_test`; it creates and drops a temporary schema there:
+The PostgreSQL tenancy test uses a disposable database named `school84_tenant_test` and creates and drops a temporary schema there:
 
 ```bash
 createdb school84_tenant_test
 TEST_TENANCY_DATABASE_URL='postgresql://USER:PASSWORD@localhost:5432/school84_tenant_test' pnpm test:tenant
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution workflow and [SECURITY.md](SECURITY.md) for vulnerability reporting.
+Do not run `prisma db push` against a database containing school data. Back up and verify existing data, then follow the [tenancy upgrade guide](docs/TENANCY_UPGRADE.md).
 
-## Existing installations
+## Technology
 
-Do not run `prisma db push` against a database containing school data. Back up and verify the database, then follow [TENANCY_UPGRADE.md](docs/TENANCY_UPGRADE.md) to apply the data-preserving tenant migration. Read the [local operations guide](docs/LOCAL_DEVELOPMENT.md) for backup, update, and recovery procedures.
+- Next.js App Router, React, and TypeScript
+- Tailwind CSS and Base UI/shadcn components
+- PostgreSQL and Prisma
+- better-auth, email OTP, and GitHub OAuth
+- S3-compatible course media storage
+- Isolated Python execution through a dedicated runner service
 
-## Help and community
+## Contributing and support
 
-Report bugs and propose features through [GitHub Issues](https://github.com/gwinell/School84/issues). See [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request, and use [SECURITY.md](SECURITY.md) for private vulnerability reports. This fork is maintained by [@gwinell](https://github.com/gwinell).
+Report bugs and propose features through [GitHub Issues](https://github.com/gwinell/School84/issues). Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request. For private vulnerability reports, see [SECURITY.md](SECURITY.md).
 
 ## License and attribution
 
