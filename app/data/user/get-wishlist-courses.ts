@@ -57,7 +57,7 @@ export async function getMyWishlistCourses({
     prisma.wishlistItem.findMany({
       where: {
         userId: session.user.id,
-        course: { status: "PUBLISHED" },
+        course: { status: "PUBLISHED", organization: { type: "SCHOOL" } },
       },
       orderBy: { createdAt: "desc" },
       skip,
@@ -100,7 +100,7 @@ export async function getMyWishlistCourses({
     prisma.wishlistItem.count({
       where: {
         userId: session.user.id,
-        course: { status: "PUBLISHED" },
+        course: { status: "PUBLISHED", organization: { type: "SCHOOL" } },
       },
     }),
   ]);

@@ -43,7 +43,7 @@ export async function getCourseReviews({
 
   const [rows, total] = await Promise.all([
     prisma.courseReview.findMany({
-      where: { courseId },
+      where: { courseId, course: { organization: { type: "SCHOOL" } } },
       orderBy: { createdAt: "desc" },
       skip,
       take,
@@ -59,7 +59,7 @@ export async function getCourseReviews({
         },
       },
     }),
-    prisma.courseReview.count({ where: { courseId } }),
+    prisma.courseReview.count({ where: { courseId, course: { organization: { type: "SCHOOL" } } } }),
   ]);
 
   return {
@@ -89,7 +89,7 @@ export async function getCourseRatingAggregate({
   courseId: string;
 }): Promise<{ avg: number; count: number }> {
   const result = await prisma.courseReview.aggregate({
-    where: { courseId },
+    where: { courseId, course: { organization: { type: "SCHOOL" } } },
     _avg: { rating: true },
     _count: { _all: true },
   });
