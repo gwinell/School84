@@ -71,4 +71,3 @@ node --test tests/course-package.test.cjs tests/course-package-validator.test.cj
 ```
 
 The validator reads the archive using the same `parseCoursePackageZip` implementation used by the server. It checks archive safety, required manifest and version, schema fields, declared/referenced assets, asset sizes and hashes, and supported MIME types. It prints a structural summary and exits non-zero on invalid input. A successful result does not review instructional quality, rights, accessibility, factual accuracy, checker behavior, or source-code safety; review those separately. The server import creates a draft course and may still reject content for runtime or school-specific reasons.
-
