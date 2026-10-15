@@ -9,6 +9,7 @@ import {
   UserIcon,
   ClipboardListIcon,
   SchoolIcon,
+  LibraryBigIcon,
 } from "lucide-react";
 
 import NavUser from "@/components/nav-user";
@@ -54,6 +55,11 @@ export function DashboardSidebar({ role, hasTeachingAccess = false, schools = []
       title: "Обучение",
       url: "/dashboard",
       icon: <GraduationCapIcon size={16} />,
+    },
+    {
+      title: "Import a course",
+      url: "/dashboard/import",
+      icon: <LibraryBigIcon size={16} />,
     },
     {
       title: "Профиль",

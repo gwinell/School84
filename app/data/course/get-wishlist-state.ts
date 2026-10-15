@@ -14,7 +14,7 @@ export async function getWishlistedCourseIds(): Promise<Set<string>> {
   }
 
   const rows = await prisma.wishlistItem.findMany({
-    where: { userId: session.user.id },
+    where: { userId: session.user.id, course: { organization: { type: "SCHOOL" } } },
     select: { courseId: true },
   });
 
@@ -28,8 +28,8 @@ export async function isCourseWishlisted({
   courseId: string;
   userId: string;
 }): Promise<boolean> {
-  const row = await prisma.wishlistItem.findUnique({
-    where: { userId_courseId: { userId, courseId } },
+  const row = await prisma.wishlistItem.findFirst({
+    where: { userId, courseId, course: { organization: { type: "SCHOOL" } } },
     select: { id: true },
   });
   return Boolean(row);

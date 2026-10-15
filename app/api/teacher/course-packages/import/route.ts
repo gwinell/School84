@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import arcjet, { fixedWindow } from "@/lib/arcjet";
+import { acquireCoursePackageImportSlot, coursePackageGlobalRateLimit } from "@/lib/course-package/import-admission";
 
 import { requireTeacher } from "@/app/data/teacher/require-teacher";
 import prisma from "@/lib/prisma";
@@ -9,7 +11,7 @@ import { importCoursePackage } from "@/lib/course-package/service";
 
 const MAX_MULTIPART_BYTES = COURSE_PACKAGE_MAX_ARCHIVE_BYTES + 1024 * 1024;
 const organizationSchema = z.string().cuid();
-let packageImportActive = false;
+const importRateLimit = arcjet.withRule(fixedWindow({ mode: "LIVE", window: "10m", max: 3 }));
 
 async function readBoundedFormData(request: Request, limit: number): Promise<FormData> {
   const contentLength = request.headers.get("content-length");
@@ -43,7 +45,9 @@ async function readBoundedFormData(request: Request, limit: number): Promise<For
 }
 
 async function canAuthorInOrganization(input: { organizationId: string; userId: string; role: string | null | undefined }) {
-  if (input.role === "admin") return Boolean(await prisma.organization.findUnique({ where: { id: input.organizationId }, select: { id: true } }));
+  const organization = await prisma.organization.findUnique({ where: { id: input.organizationId }, select: { id: true, type: true } });
+  if (!organization || organization.type !== "SCHOOL") return false;
+  if (input.role === "admin") return true;
   const membership = await prisma.organizationMembership.findUnique({
     where: { organizationId_userId: { organizationId: input.organizationId, userId: input.userId } },
     select: { role: true },
@@ -53,8 +57,12 @@ async function canAuthorInOrganization(input: { organizationId: string; userId: 
 
 export async function POST(request: Request) {
   const session = await requireTeacher();
-  if (packageImportActive) return NextResponse.json({ error: "Импорт другого курса уже выполняется. Повторите позже." }, { status: 429 });
-  packageImportActive = true;
+  const globalDecision = await coursePackageGlobalRateLimit.protect(request, { fingerprint: "course-package-imports" });
+  if (globalDecision.isDenied()) return NextResponse.json({ error: "Общий лимит импорта исчерпан. Повторите позже." }, { status: 429 });
+  const decision = await importRateLimit.protect(request, { fingerprint: session.user.id });
+  if (decision.isDenied()) return NextResponse.json({ error: "Лимит импорта исчерпан. Повторите позже." }, { status: 429 });
+  const releaseImportSlot = acquireCoursePackageImportSlot();
+  if (!releaseImportSlot) return NextResponse.json({ error: "Импорт уже выполняется. Повторите позже." }, { status: 429 });
   try {
     if (!request.headers.get("content-type")?.toLowerCase().startsWith("multipart/form-data;")) {
       return NextResponse.json({ error: "Ожидается multipart/form-data" }, { status: 415 });
@@ -100,6 +108,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Не удалось импортировать курс. Проверьте формат пакета, права и настройки организации." }, { status: 400 });
     }
   } finally {
-    packageImportActive = false;
+    releaseImportSlot();
   }
 }

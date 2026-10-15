@@ -36,10 +36,10 @@ export async function addToWishlistAction({
 
     const course = await prisma.course.findUnique({
       where: { id: courseId },
-      select: { id: true, slug: true, status: true },
+      select: { id: true, slug: true, status: true, organization: { select: { type: true } } },
     });
 
-    if (!course || course.status !== "PUBLISHED") {
+    if (!course || course.status !== "PUBLISHED" || course.organization.type !== "SCHOOL") {
       return errorResponse("Course not available", null);
     }
 

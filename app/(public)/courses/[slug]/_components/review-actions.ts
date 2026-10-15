@@ -114,10 +114,10 @@ export async function submitReviewAction({
 
     const course = await prisma.course.findUnique({
       where: { id: courseId },
-      select: { id: true, slug: true, status: true, organizationId: true },
+      select: { id: true, slug: true, status: true, organizationId: true, organization: { select: { type: true } } },
     });
 
-    if (!course || course.status !== "PUBLISHED") {
+    if (!course || course.status !== "PUBLISHED" || course.organization.type !== "SCHOOL") {
       return errorResponse("Course not available for review", null);
     }
 
@@ -201,7 +201,7 @@ export async function editReviewAction({
         id: true,
         userId: true,
         courseId: true,
-        course: { select: { slug: true, status: true, organizationId: true } },
+        course: { select: { slug: true, status: true, organizationId: true, organization: { select: { type: true } } } },
       },
     });
 
@@ -213,7 +213,7 @@ export async function editReviewAction({
       return errorResponse("You can only edit your own review", null);
     }
 
-    if (review.course.status !== "PUBLISHED") {
+    if (review.course.status !== "PUBLISHED" || review.course.organization.type !== "SCHOOL") {
       return errorResponse("Course not available", null);
     }
 

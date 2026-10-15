@@ -45,7 +45,7 @@ function load(file, overrides = {}, globals = {}) {
   } }).outputText;
   const exports = {};
   vm.runInNewContext(code, {
-    exports, console, Date, Set, Map, Object,
+    exports, console, Date, Set, Map, Object, URL,
     require: (name) => modules[name] ?? new Proxy({}, { get: (_, property) => String(property) }),
     ...globals,
   }, { filename: file });
@@ -148,6 +148,100 @@ test('school management issues the selected role invite, exposes a copyable one-
   assert.equal(inviteUrl.props.value, 'https://school.example.test/school-invite/token');
   await find(tree, (node) => node.type === 'Button' && text(node).includes('Копировать ссылку')).props.onClick();
   assert.deepEqual(copied, ['https://school.example.test/school-invite/token']);
+});
+
+test('school owners and admins can optimistically save branding without changing membership controls', async () => {
+  const updates = [];
+  const h = load('app/dashboard/schools/_components/SchoolManagement.tsx', {
+    '@/app/data/organization/actions': {
+      createOrganization: async () => ({ status: 'success' }),
+      createOrganizationInvitation: async () => ({ status: 'success' }),
+      removeOrganizationMember: async () => ({ status: 'success' }),
+      updateOrganizationMemberRole: async () => ({ status: 'success' }),
+      updateOrganizationBranding: async (input) => { updates.push(input); return { status: 'success', message: 'saved' }; },
+    },
+    '@/components/brand': { Brand: 'Brand' },
+    sonner: { toast: { error() {}, success() {} } },
+  });
+  const schools = [
+    { id: 'owner-school', name: 'Лицей 5', slug: 'lyceum-5', logoUrl: null, primaryColor: null, role: 'OWNER', members: [] },
+    { id: 'admin-school', name: 'Школа 42', slug: 'school-42', logoUrl: null, primaryColor: null, role: 'ADMIN', members: [] },
+    { id: 'teacher-school', name: 'Школа 7', slug: 'school-7', logoUrl: null, primaryColor: null, role: 'TEACHER', members: [] },
+  ];
+  let tree = h.render('SchoolManagement', { schools });
+  assert.ok(nodes(tree).some((node) => node.type === 'form' && nodes(node).some((child) => child.props?.id === 'school-name-owner-school')));
+  assert.ok(nodes(tree).some((node) => node.type === 'form' && nodes(node).some((child) => child.props?.id === 'school-name-admin-school')));
+  assert.ok(!nodes(tree).some((node) => node.props?.id === 'school-name-teacher-school'));
+
+  for (const [id, value] of [['school-name-owner-school', 'Northside Academy'], ['school-slug-owner-school', 'northside-academy'], ['school-logo-owner-school', 'https://school.example.test/logo.png'], ['school-color-owner-school', '#124a73']]) {
+    find(tree, (node) => node.props?.id === id).props.onChange({ target: { value } });
+    tree = h.render('SchoolManagement', { schools });
+  }
+  const brandForm = nodes(tree).find((node) => node.type === 'form' && nodes(node).some((child) => child.props?.id === 'school-name-owner-school'));
+  submit(brandForm);
+  tree = h.render('SchoolManagement', { schools });
+  assert.ok(nodes(tree).some((node) => node.type === 'Brand' && node.props.brand?.name === 'Northside Academy'));
+  assert.ok(nodes(tree).some((node) => node.type === 'Button' && node.props.render?.props?.href === '/schools/northside-academy/courses'));
+  await h.flush();
+  assert.deepEqual(plain(updates), [{ organizationId: 'owner-school', name: 'Northside Academy', slug: 'northside-academy', logoUrl: 'https://school.example.test/logo.png', primaryColor: '#124a73' }]);
+});
+
+test('school branding save rolls back optimistic public identity when the action reports an error', async () => {
+  const h = load('app/dashboard/schools/_components/SchoolManagement.tsx', {
+    '@/app/data/organization/actions': {
+      createOrganization: async () => ({ status: 'success' }),
+      createOrganizationInvitation: async () => ({ status: 'success' }),
+      removeOrganizationMember: async () => ({ status: 'success' }),
+      updateOrganizationMemberRole: async () => ({ status: 'success' }),
+      updateOrganizationBranding: async () => ({ status: 'error', message: 'slug taken' }),
+    },
+    '@/components/brand': { Brand: 'Brand' },
+    sonner: { toast: { error() {}, success() {} } },
+  });
+  const schools = [{ id: 'school-a', name: 'School A', slug: 'school-a', logoUrl: null, primaryColor: null, role: 'ADMIN', members: [] }];
+  let tree = h.render('SchoolManagement', { schools });
+  find(tree, (node) => node.props?.id === 'school-name-school-a').props.onChange({ target: { value: 'Changed school' } });
+  tree = h.render('SchoolManagement', { schools });
+  find(tree, (node) => node.props?.id === 'school-slug-school-a').props.onChange({ target: { value: 'changed-school' } });
+  tree = h.render('SchoolManagement', { schools });
+  submit(nodes(tree).find((node) => node.type === 'form' && nodes(node).some((child) => child.props?.id === 'school-name-school-a')));
+  await h.flush();
+  tree = h.render('SchoolManagement', { schools });
+  assert.ok(nodes(tree).some((node) => node.type === 'Brand' && node.props.brand?.name === 'School A'));
+  assert.ok(nodes(tree).some((node) => node.type === 'Button' && node.props.render?.props?.href === '/schools/school-a/courses'));
+});
+
+test('public tenant layout loads and displays branding for the route organization', async () => {
+  let requestedSlug;
+  const h = load('app/(public)/schools/[organizationSlug]/layout.tsx', {
+    'next/navigation': { notFound() { throw new Error('NOT_FOUND'); } },
+    '@/components/brand': { Brand: 'Brand' },
+    '@/lib/prisma': { default: { organization: { findUnique: async (args) => { requestedSlug = args.where.slug; return { id: 'school-a', name: 'Northside Academy', slug: 'northside-academy', logoUrl: 'https://school.example.test/logo.png', primaryColor: '#124a73' }; } } } },
+  });
+  const tree = await h.render('default', { params: Promise.resolve({ organizationSlug: 'northside-academy' }), children: 'catalog content' });
+  assert.equal(requestedSlug, 'northside-academy');
+  const brand = find(tree, (node) => node.type === 'Brand');
+  assert.deepEqual(plain(brand.props.brand), { id: 'school-a', name: 'Northside Academy', slug: 'northside-academy', logoUrl: 'https://school.example.test/logo.png', primaryColor: '#124a73' });
+  assert.match(text(tree), /catalog content/);
+});
+
+test('authenticated tenant learning layout uses only the organization resolved from its route slug', async () => {
+  let query;
+  const h = load('app/dashboard/schools/[organizationSlug]/layout.tsx', {
+    'next/navigation': { notFound() { throw new Error('NOT_FOUND'); } },
+    '@/components/brand': { Brand: 'Brand' },
+    '@/app/data/user/require-user': { requireUser: async () => ({ user: { id: 'student-a', role: 'user' } }) },
+    '@/lib/prisma': { default: { organization: { findUnique: async (args) => {
+      query = args;
+      return { id: 'school-b', name: 'School B', slug: 'school-b', logoUrl: 'https://school-b.example.test/logo.png', primaryColor: '#285a42', type: 'SCHOOL', ownerUserId: null };
+    } } } },
+  });
+  const tree = await h.render('default', { params: Promise.resolve({ organizationSlug: 'school-b' }), children: 'learning content' });
+  assert.equal(query.where.slug, 'school-b');
+  assert.deepEqual(plain(query.select), { id: true, name: true, slug: true, logoUrl: true, primaryColor: true, type: true, ownerUserId: true });
+  const brand = find(tree, (node) => node.type === 'Brand');
+  assert.deepEqual(plain(brand.props.brand), { id: 'school-b', name: 'School B', slug: 'school-b', logoUrl: 'https://school-b.example.test/logo.png', primaryColor: '#285a42', type: 'SCHOOL', ownerUserId: null });
+  assert.match(text(tree), /learning content/);
 });
 
 test('teacher course cards identify their school and open its tenant-specific course catalogue', async () => {

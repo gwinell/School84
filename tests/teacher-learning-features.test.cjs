@@ -63,6 +63,17 @@ function load(file, mocks = {}, globals = {}) {
           return (membership?.role ?? 'STUDENT') === 'STUDENT' && enrollment?.status === 'Active' ? enrollment : null;
         } };
       }
+      if (name === './course-learner-access') {
+        const db = mocks['@/lib/prisma'];
+        return { getCourseLearnerAccess: async ({ userId, userRole, organizationId, courseId }) => {
+          if (userRole === 'admin') return { status: 'Active', accessMode: 'ALL_AT_ONCE' };
+          const [membership, enrollment] = await Promise.all([
+            db.organizationMembership?.findUnique?.({ where: { organizationId_userId: { organizationId, userId } } }),
+            db.enrollment?.findUnique?.({ where: { userId_courseId: { userId, courseId } } }),
+          ]);
+          return membership?.role === 'STUDENT' && enrollment?.status === 'Active' ? enrollment : null;
+        } };
+      }
       return require(name);
     },
     Date, Map, Set, Object, console, ...globals,
@@ -642,8 +653,7 @@ test('learner quiz history query is scoped to the signed-in user and active cour
   const historyWhere = plain(historyQuery.where);
   assert.equal(historyWhere.userId, 'learner-1');
   assert.equal(historyWhere.lessonCellId, 'quiz-cell');
-  assert.equal(historyWhere.lessonCell.is.lesson.is.chapter.is.course.is.organization.is.memberships.some.role, 'STUDENT');
-  assert.equal(historyWhere.lessonCell.is.lesson.is.chapter.is.course.is.enrollment.some.status, 'Active');
+  assert.deepEqual(historyWhere.lessonCell.is.lesson.is.chapter.is.courseId, { in: ['course-1'] });
   assert.equal(historyQuery.select.selectedAnswers, true);
   assert.equal(historyQuery.select.feedback.select.comment, true);
   assert.equal(historyQuery.select.correctAnswers, undefined);

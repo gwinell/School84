@@ -3,6 +3,7 @@ import "server-only";
 import { auth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { headers } from "next/headers";
+import { getCourseLearnerAccess } from "./course-learner-access";
 
 export async function checkIfCourseBought({
   courseId,
@@ -28,17 +29,7 @@ export async function checkIfCourseBought({
 
   if (!resolvedUserId) return false;
 
-  const enrollment = await prisma.enrollment.findFirst({
-    where: {
-      userId: resolvedUserId,
-      courseId,
-      status: "Active",
-      course: { organization: { memberships: { some: { userId: resolvedUserId, role: "STUDENT" } } } },
-    },
-    select: {
-      status: true,
-    },
-  });
-
-  return Boolean(enrollment);
+  const course = await prisma.course.findUnique({ where: { id: courseId }, select: { organizationId: true } });
+  if (!course) return false;
+  return Boolean(await getCourseLearnerAccess({ userId: resolvedUserId, userRole: null, courseId, organizationId: course.organizationId }));
 }

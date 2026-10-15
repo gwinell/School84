@@ -39,6 +39,7 @@ model User {
   certificates       Certificate[]
   instructorCourses  CourseInstructor[]
   organizationMemberships OrganizationMembership[]
+  personalOrganization Organization? @relation("PersonalOrganizationOwner")
   sentOrganizationInvitations OrganizationInvitation[] @relation("OrganizationInvitationCreator")
   quizAttempts       QuizAttempt[]
   feedbackGiven      SubmissionFeedback[] @relation("FeedbackReviewer")
@@ -239,14 +240,22 @@ model Organization {
   slug         String   @unique
   logoUrl      String?
   primaryColor String?
+  type         OrganizationType @default(SCHOOL)
+  ownerUserId  String? @unique
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   memberships OrganizationMembership[]
   invitations OrganizationInvitation[]
   courses     Course[]
+  owner       User? @relation("PersonalOrganizationOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
 
   @@map("organization")
+}
+
+enum OrganizationType {
+  SCHOOL
+  PERSONAL
 }
 
 model OrganizationMembership {
@@ -775,6 +784,8 @@ model Certificate {
 
   courseId String?
   course   Course? @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  // Retain public/private status after the optional course relation is deleted.
+  organizationTypeSnapshot OrganizationType?
 
   // Stable copy of the course id at issue time. `courseId` goes NULL when a
   // course is deleted, and Postgres treats NULLs as distinct in unique indexes,

@@ -2,7 +2,7 @@ import "server-only";
 
 import prisma from "@/lib/prisma";
 
-/** Active learning requires both a current STUDENT membership and enrollment. */
+/** Active learning requires enrollment plus either a school STUDENT role or personal-workspace ownership. */
 export async function getCourseLearnerAccess({
   userId,
   userRole,
@@ -15,16 +15,22 @@ export async function getCourseLearnerAccess({
   courseId: string;
 }) {
   if (userRole === "admin") return { status: "Active" as const, accessMode: "ALL_AT_ONCE" as const };
-  const [membership, enrollment] = await Promise.all([
-    prisma.organizationMembership.findUnique({
-      where: { organizationId_userId: { organizationId, userId } },
-      select: { role: true },
+  const [organization, enrollment] = await Promise.all([
+    prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: {
+        type: true,
+        ownerUserId: true,
+        memberships: { where: { userId }, select: { role: true }, take: 1 },
+      },
     }),
     prisma.enrollment.findUnique({
       where: { userId_courseId: { userId, courseId } },
       select: { status: true, accessMode: true },
     }),
   ]);
-  if (membership?.role !== "STUDENT" || enrollment?.status !== "Active") return null;
+  const isSchoolStudent = organization?.type === "SCHOOL" && organization.memberships[0]?.role === "STUDENT";
+  const ownsPersonalWorkspace = organization?.type === "PERSONAL" && organization.ownerUserId === userId;
+  if ((!isSchoolStudent && !ownsPersonalWorkspace) || enrollment?.status !== "Active") return null;
   return enrollment;
 }

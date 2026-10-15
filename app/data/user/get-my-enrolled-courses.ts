@@ -31,7 +31,10 @@ export async function getMyEnrolledCourses(): Promise<tEnrolledCourse[]> {
     where: {
       userId: session.user.id,
       status: "Active",
-      course: { organization: { memberships: { some: { userId: session.user.id, role: "STUDENT" } } } },
+      course: { organization: { OR: [
+        { type: "SCHOOL", memberships: { some: { userId: session.user.id, role: "STUDENT" } } },
+        { type: "PERSONAL", ownerUserId: session.user.id },
+      ] } },
     },
     orderBy: { updatedAt: "desc" },
     select: {

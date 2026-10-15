@@ -18,6 +18,17 @@ function load(file, mocks = {}, user = { id: 'removed-member', role: 'user' }) {
       if (name === 'server-only') return {};
       if (name === '@/app/data/user/require-user') return { requireUser: async () => ({ user }) };
       if (name === './require-user') return { requireUser: async () => ({ user }) };
+      if (name === './course-learner-access') {
+        const db = mocks['@/lib/prisma'];
+        return { getCourseLearnerAccess: async ({ userId, userRole, organizationId, courseId }) => {
+          if (userRole === 'admin') return { status: 'Active', accessMode: 'ALL_AT_ONCE' };
+          const [membership, enrollment] = await Promise.all([
+            db.organizationMembership?.findUnique?.({ where: { organizationId_userId: { organizationId, userId } } }),
+            db.enrollment?.findUnique?.({ where: { userId_courseId: { userId, courseId } } }),
+          ]);
+          return membership?.role === 'STUDENT' && enrollment?.status === 'Active' ? enrollment : null;
+        } };
+      }
       if (name === '@/lib/course-access') return { canAccessAssignedLesson: async () => true };
       if (name === '@/lib/responses') return {
         errorResponse: (message, data) => ({ status: 'error', message, data }),
@@ -47,6 +58,7 @@ const courseReaderFile = 'app/data/user/get-course-for-learning.ts';
 function revokedMembershipDb(role) {
   const calls = { writes: 0, runner: 0 };
   const prisma = {
+    organization: { findUnique: async () => ({ type: 'SCHOOL', ownerUserId: null, memberships: [] }) },
     organizationMembership: { findUnique: async () => null },
     enrollment: { findUnique: async () => ({ status: 'Active', accessMode: 'ALL_AT_ONCE' }) },
     quizQuestion: { findUnique: async () => ({
@@ -103,21 +115,25 @@ test('removed teachers and admins with stale active enrollment cannot mutate qui
   }
 });
 
-test('quiz history without a cell filter is scoped to current student memberships and active enrollments', async () => {
-  let query;
+test('quiz history without a cell filter is scoped to owned workspaces or current student memberships', async () => {
+  let enrollmentQuery;
+  let attemptQuery;
   const reader = load(attemptsFile, {
     '@/lib/prisma': {
-      organizationMembership: { findUnique: async () => null },
-      enrollment: { findUnique: async () => ({ status: 'Active' }) },
-      quizAttempt: { findMany: async ({ where }) => { query = where; return []; } },
+      enrollment: { findMany: async ({ where }) => { enrollmentQuery = where; return [{ courseId: 'owned-course' }]; } },
+      quizAttempt: { findMany: async ({ where }) => { attemptQuery = where; return []; } },
     },
   }, { id: 'removed-member', role: 'teacher' });
   assert.deepEqual(await reader.getMyQuizAttempts(), []);
-  const courseScope = query.lessonCell.is.lesson.is.chapter.is.course.is;
-  assert.equal(courseScope.organization.is.memberships.some.userId, 'removed-member');
-  assert.equal(courseScope.organization.is.memberships.some.role, 'STUDENT');
-  assert.equal(courseScope.enrollment.some.userId, 'removed-member');
-  assert.equal(courseScope.enrollment.some.status, 'Active');
+  assert.deepEqual(JSON.parse(JSON.stringify(enrollmentQuery)), {
+    userId: 'removed-member', status: 'Active',
+    course: { organization: { OR: [
+      { type: 'SCHOOL', memberships: { some: { userId: 'removed-member', role: 'STUDENT' } } },
+      { type: 'PERSONAL', ownerUserId: 'removed-member' },
+    ] } },
+  });
+  assert.equal(attemptQuery.userId, 'removed-member');
+  assert.deepEqual(JSON.parse(JSON.stringify(attemptQuery.lessonCell.is.lesson.is.chapter.is.courseId)), { in: ['owned-course'] });
 });
 
 test('removed learner cannot edit or delete own comments while stale enrollment remains', async () => {
@@ -168,6 +184,8 @@ test('course reader resolves only courses with current STUDENT membership', asyn
     '@/app/dashboard/_lib/resolve-learning-target': { resolveLearningTarget: () => ({ lessonId: null, cellId: null }) },
   }, { id: 'teacher', role: 'teacher' });
   await assert.rejects(reader.getCourseForLearning({ slug: 'course', organizationSlug: 'school' }), /NOT_FOUND/);
-  assert.equal(query.organization.memberships.some.userId, 'teacher');
-  assert.equal(query.organization.memberships.some.role, 'STUDENT');
+  assert.deepEqual(JSON.parse(JSON.stringify(query.organization.OR)), [
+    { type: 'SCHOOL', memberships: { some: { userId: 'teacher', role: 'STUDENT' } } },
+    { type: 'PERSONAL', ownerUserId: 'teacher' },
+  ]);
 });

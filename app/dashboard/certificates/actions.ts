@@ -72,6 +72,12 @@ export async function claimCertificateAction({
           verificationCode: null,
         });
       }
+      if (result.reason === "private-course") {
+        return errorResponse("Certificates are unavailable for courses in a personal library", {
+          issued: false,
+          verificationCode: null,
+        });
+      }
       // already-exists: surface the existing code
       const existing = await prisma.certificate.findUnique({
         where: { userId_courseId: { userId: session.user.id, courseId } },
