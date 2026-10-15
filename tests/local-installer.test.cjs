@@ -117,7 +117,31 @@ test('fresh start initializes the environment in safe order and opens the local 
     assert.ok(schemaInit < seed && seed < appStart, 'seed demo data only after schema initialization and before app exposure');
     assert.equal(fs.readFileSync(path.join(fixture.root, 'browser.log'), 'utf8').trim(), 'http://localhost:3001');
     assert.match(fs.readFileSync(path.join(fixture.root, '.env'), 'utf8'), /^DEMO_LOGIN_ENABLED=true$/m);
+    assert.equal(fs.statSync(path.join(fixture.root, '.env')).mode & 0o777, 0o600, 'local secrets are private to the user');
     assert.equal(fs.existsSync(path.join(fixture.root, 'fake-seed-marker')), true);
+  } finally {
+    cleanup(fixture);
+  }
+});
+
+test('start removes newly created secrets and explains a failed private-permissions check', () => {
+  const fixture = makeFixture();
+  try {
+    const fakeChmod = path.join(fixture.root, 'fake-bin/chmod');
+    fs.writeFileSync(fakeChmod, '#!/bin/sh\nexit 1\n');
+    fs.chmodSync(fakeChmod, 0o755);
+
+    const result = spawnSync(path.join(fixture.root, 'scripts/local-school.sh'), ['start'], {
+      cwd: fixture.root,
+      env: { ...fixture.env, PATH: `${path.dirname(fakeChmod)}:${process.env.PATH}` },
+      encoding: 'utf8',
+      timeout: 5_000,
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr + result.stdout, /не удалось защитить \.env/i);
+    assert.equal(fs.existsSync(path.join(fixture.root, '.env')), false);
+    assert.equal(fs.readdirSync(fixture.root).some((name) => name.startsWith('.env.tmp.')), false);
   } finally {
     cleanup(fixture);
   }
