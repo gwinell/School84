@@ -296,4 +296,3 @@ test("public pages render each school's own brand and never reuse another tenant
   assert.ok(!treeText(a).includes(schoolB.name) && !treeText(b).includes(schoolA.name), "rendered pages do not leak another school's name");
   assert.deepEqual(reads, ["lyceum-5", "school-42"], "each request resolves branding by its own tenant slug");
 });
-
