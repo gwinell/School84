@@ -19,6 +19,26 @@ function ascii(bytes: Uint8Array, start: number, end: number) {
   return String.fromCharCode(...bytes.subarray(start, end));
 }
 
+/** Read only brands inside a well-formed ISO-BMFF ftyp box at the file start. */
+function readIsoBmffFtypBrands(bytes: Uint8Array): string[] | null {
+  if (bytes.length < 16 || ascii(bytes, 4, 8) !== "ftyp") return null;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let headerSize = 8;
+  let boxSize = view.getUint32(0, false);
+  if (boxSize === 1) {
+    if (bytes.length < 24) return null;
+    const extendedSize = view.getBigUint64(8, false);
+    if (extendedSize > BigInt(Number.MAX_SAFE_INTEGER)) return null;
+    boxSize = Number(extendedSize);
+    headerSize = 16;
+  }
+  const brandsStart = headerSize + 8;
+  if (boxSize < brandsStart || boxSize > bytes.length || (boxSize - brandsStart) % 4 !== 0) return null;
+  const brands = [ascii(bytes, headerSize, headerSize + 4)];
+  for (let offset = brandsStart; offset < boxSize; offset += 4) brands.push(ascii(bytes, offset, offset + 4));
+  return brands;
+}
+
 /** Validate the declared MIME against the media container signature before storage. */
 export function assetSignatureMatches(bytes: Uint8Array, contentType: string): boolean {
   const mime = contentType.toLowerCase().split(";")[0]?.trim();
@@ -27,14 +47,14 @@ export function assetSignatureMatches(bytes: Uint8Array, contentType: string): b
   if (mime === "image/webp") return bytes.length >= 12 && ascii(bytes, 0, 4) === "RIFF" && ascii(bytes, 8, 12) === "WEBP";
   if (mime === "image/gif") return bytes.length >= 6 && ["GIF87a", "GIF89a"].includes(ascii(bytes, 0, 6));
   if (mime === "image/avif") {
-    if (bytes.length < 12 || ascii(bytes, 4, 8) !== "ftyp") return false;
-    const brands = [ascii(bytes, 8, 12), ...Array.from({ length: Math.floor(Math.max(0, Math.min(bytes.length, 64) - 16) / 4) }, (_, i) => ascii(bytes, 16 + i * 4, 20 + i * 4))];
-    return brands.some((brand) => ["avif", "avis"].includes(brand));
+    const brands = readIsoBmffFtypBrands(bytes);
+    return Boolean(brands?.some((brand) => ["avif", "avis"].includes(brand)));
   }
   if (mime === "video/mp4" || mime === "video/quicktime") {
-    if (bytes.length < 12 || ascii(bytes, 4, 8) !== "ftyp") return false;
-    const brands = [ascii(bytes, 8, 12), ...Array.from({ length: Math.floor(Math.max(0, Math.min(bytes.length, 64) - 16) / 4) }, (_, i) => ascii(bytes, 16 + i * 4, 20 + i * 4))];
-    return mime === "video/quicktime" ? brands.includes("qt  ") : brands.some((brand) => brand !== "qt  " && /^[A-Za-z0-9 ]{4}$/.test(brand));
+    const brands = readIsoBmffFtypBrands(bytes);
+    return Boolean(brands && (mime === "video/quicktime"
+      ? brands.includes("qt  ")
+      : brands.some((brand) => brand !== "qt  " && /^[A-Za-z0-9 ]{4}$/.test(brand))));
   }
   if (mime === "video/webm") return bytes.length >= 4 && bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3;
   return false;
