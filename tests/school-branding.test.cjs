@@ -12,9 +12,18 @@ function loadAction({ actorRole = "OWNER", actorSchool = "school-a", prisma, rev
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true,
   } }).outputText;
   const exports = {};
+  const actionPrisma = {
+    ...prisma,
+    organization: {
+      findUnique: async ({ where }) => ({ id: where.id, slug: "old-lyceum" }),
+      findFirst: async () => null,
+      update: async ({ where, data }) => ({ id: where.id, ...data }),
+      ...prisma?.organization,
+    },
+  };
   const requireMock = (name) => {
     if (name === "server-only") return {};
-    if (name === "@/lib/prisma") return prisma;
+    if (name === "@/lib/prisma") return actionPrisma;
     if (name === "@/app/data/user/require-user") return { requireUser: async () => ({ user: { id: "actor", role: "user" } }) };
     if (name === "./authorization" || name === "@/app/data/organization/authorization") {
       return { requireOrganizationRole: async (organizationId, roles) => {
@@ -54,7 +63,11 @@ function loadSchoolManagement({ saveBranding, toastMessages = [] }) {
       if (!(index in state)) state[index] = typeof initial === "function" ? initial() : initial;
       return [state[index], (value) => { state[index] = typeof value === "function" ? value(state[index]) : value; }];
     },
-    useTransition: () => [false, (callback) => { pending.push(callback()); }],
+    useTransition: () => [false, (callback) => {
+      const transition = Promise.resolve().then(callback);
+      pending.push(transition);
+      return transition;
+    }],
   };
   const actions = {
     createOrganization: async () => ({ status: "success" }),
@@ -82,13 +95,13 @@ function loadSchoolManagement({ saveBranding, toastMessages = [] }) {
     target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX,
   } }).outputText;
   const exports = {};
-  vm.runInNewContext(code, { exports, console, Date, Set, Map, Object,
+  vm.runInNewContext(code, { exports, console, Date, Set, Map, Object, URL,
     require: (name) => modules[name] ?? new Proxy({}, { get: (_, property) => String(property) }),
     window: { location: { reload() {} } },
   }, { filename: "SchoolManagement.tsx" });
   return {
     render: (props) => { cursor = 0; return exports.SchoolManagement(props); },
-    flush: async () => { await Promise.all(pending.splice(0)); },
+    flush: async () => { while (pending.length) await Promise.all(pending.splice(0)); },
   };
 }
 
@@ -110,7 +123,7 @@ function loadTenantLayout({ organizations, reads }) {
   const modules = {
     "server-only": {},
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
-    "@/lib/prisma": prisma,
+    "@/lib/prisma": { __esModule: true, default: prisma },
     "@/components/brand": { Brand: "Brand" },
     "next/navigation": { notFound: () => { throw new Error("NOT_FOUND"); } },
   };
@@ -184,6 +197,18 @@ test("school A actor cannot change school B branding by submitting its organizat
   assert.equal(writes, 0, "cross-school branding update is denied before persistence");
 });
 
+test("school A cannot claim school B's public slug or write any branding fields", async () => {
+  let writes = 0;
+  const h = loadAction({ prisma: { organization: {
+    findFirst: async ({ where }) => where.slug === "school-b" ? { id: "school-b" } : null,
+    update: async () => { writes++; return {}; },
+  } } });
+  const result = await h.exports.updateOrganizationBranding({ ...validBrand, slug: "school-b" });
+  assert.equal(result.status, "error");
+  assert.match(result.message, /адрес школы уже занят/i);
+  assert.equal(writes, 0, "a slug owned by another tenant cannot reach the update query");
+});
+
 test("school management exposes brand fields and reports a successful save", async () => {
   const calls = [];
   const toasts = [];
@@ -204,8 +229,11 @@ test("school management exposes brand fields and reports a successful save", asy
     "school-logo-school-a": "https://cdn.example.test/new-logo.svg",
     "school-color-school-a": "#123456",
   };
-  for (const [id, value] of Object.entries(values)) fields[id].props.onChange({ target: { value } });
-  tree = h.render({ schools: [school] });
+  for (const [id, value] of Object.entries(values)) {
+    const input = treeNodes(tree).find((node) => node.type === "Input" && node.props.id === id);
+    input.props.onChange({ target: { value } });
+    tree = h.render({ schools: [school] });
+  }
   const form = treeNodes(tree).find((node) => node.type === "form" && treeNodes(node).some((child) => child.props?.id === "school-slug-school-a"));
   assert.ok(form, "brand editor has a form enclosing all branding fields");
   assert.match(treeText(form), /Сохранить оформление/);
@@ -214,14 +242,14 @@ test("school management exposes brand fields and reports a successful save", asy
   assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{
     organizationId: "school-a", name: "Новая школа", slug: "new-school",
     logoUrl: "https://cdn.example.test/new-logo.svg", primaryColor: "#123456",
-  }]);
-  assert.ok(toasts.some(([kind, message]) => kind === "success" && /оформление сохранено/i.test(message)));
+  }], `branding action should receive all edited fields; toasts: ${JSON.stringify(toasts)}`);
+  assert.ok(toasts.some(([kind, message]) => kind === "success" && /оформление школы сохранено/i.test(message)), JSON.stringify(toasts));
 });
 
 test("school management displays server validation errors without reporting success", async () => {
   const toasts = [];
   const h = loadSchoolManagement({
-    saveBranding: async () => ({ status: "error", message: "Некорректный адрес логотипа" }),
+    saveBranding: async () => ({ status: "error", message: "Этот адрес школы уже занят" }),
     toastMessages: toasts,
   });
   const school = { id: "school-a", ...validBrand, role: "ADMIN", members: [] };
@@ -231,8 +259,26 @@ test("school management displays server validation errors without reporting succ
   const form = treeNodes(tree).find((node) => node.type === "form" && treeNodes(node).some((child) => child.props?.id === "school-logo-school-a"));
   form.props.onSubmit({ preventDefault() {} });
   await h.flush();
-  assert.ok(toasts.some(([kind, message]) => kind === "error" && message === "Некорректный адрес логотипа"));
+  assert.ok(toasts.some(([kind, message]) => kind === "error" && message === "Этот адрес школы уже занят"));
   assert.ok(!toasts.some(([kind]) => kind === "success"), "failed saves are never presented as successful");
+});
+
+test("school management blocks an unsafe logo URL locally with actionable feedback", () => {
+  const toasts = [];
+  let calls = 0;
+  const h = loadSchoolManagement({
+    saveBranding: async () => { calls++; return { status: "success" }; },
+    toastMessages: toasts,
+  });
+  const school = { id: "school-a", ...validBrand, role: "OWNER", members: [] };
+  let tree = h.render({ schools: [school] });
+  const logo = treeNodes(tree).find((node) => node.type === "Input" && node.props.id === "school-logo-school-a");
+  logo.props.onChange({ target: { value: "javascript:alert(1)" } });
+  tree = h.render({ schools: [school] });
+  const form = treeNodes(tree).find((node) => node.type === "form" && treeNodes(node).some((child) => child.props?.id === "school-logo-school-a"));
+  form.props.onSubmit({ preventDefault() {} });
+  assert.equal(calls, 0, "client validation prevents unsafe logo values reaching the server action");
+  assert.ok(toasts.some(([kind, message]) => kind === "error" && message === "Ссылка на логотип должна начинаться с HTTPS"), JSON.stringify(toasts));
 });
 
 test("public pages render each school's own brand and never reuse another tenant's identity", async () => {
