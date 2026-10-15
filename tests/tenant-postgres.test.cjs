@@ -38,6 +38,27 @@ test("tenant migration preserves legacy data and isolates schools in PostgreSQL"
 
     const migration = fs.readFileSync(path.join(__dirname, "../prisma/migrations/20261015010000_school_tenancy/migration.sql"), "utf8");
     await client.query(migration);
+    const personalMigration = fs.readFileSync(path.join(__dirname, "../prisma/migrations/20261015020000_personal_organization/migration.sql"), "utf8");
+    await client.query(personalMigration);
+
+    const organizationDefaults = await client.query(`SELECT "type", "ownerUserId" FROM "organization"`);
+    assert.deepEqual(organizationDefaults.rows, [{ type: "SCHOOL", ownerUserId: null }], "tenant backfill classifies existing schools as SCHOOL without personal owners");
+    await client.query(`INSERT INTO "organization" ("id", "name", "slug", "type", "ownerUserId") VALUES ('personal-library', 'My Library', 'personal-student-a', 'PERSONAL', 'student-a')`);
+    await assert.rejects(
+      client.query(`INSERT INTO "organization" ("id", "name", "slug", "type") VALUES ('personal-no-owner', 'Broken Library', 'personal-no-owner', 'PERSONAL')`),
+      (error) => error.code === "23514",
+      "PERSONAL workspaces require an owner",
+    );
+    await assert.rejects(
+      client.query(`INSERT INTO "organization" ("id", "name", "slug", "type", "ownerUserId") VALUES ('school-with-owner', 'Invalid School', 'invalid-school', 'SCHOOL', 'owner-b')`),
+      (error) => error.code === "23514",
+      "SCHOOL organizations cannot have a personal owner",
+    );
+    await assert.rejects(
+      client.query(`INSERT INTO "organization" ("id", "name", "slug", "type", "ownerUserId") VALUES ('duplicate-personal-owner', 'Second Library', 'second-personal-student-a', 'PERSONAL', 'student-a')`),
+      (error) => error.code === "23505",
+      "a user can own only one personal workspace",
+    );
 
     const backfill = await client.query(`
       SELECT o."slug" AS org_slug, c."slug" AS course_slug,

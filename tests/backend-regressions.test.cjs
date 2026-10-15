@@ -31,6 +31,17 @@ function load(file, mocks = {}, globals = {}) {
           return membership?.role === 'STUDENT' && enrollment?.status === 'Active' ? enrollment : null;
         } };
       }
+      if (name === './course-learner-access') {
+        const db = mocks['@/lib/prisma'];
+        return { getCourseLearnerAccess: async ({ userId, userRole, organizationId, courseId }) => {
+          if (userRole === 'admin') return { status: 'Active', accessMode: 'ALL_AT_ONCE' };
+          const [membership, enrollment] = await Promise.all([
+            db.organizationMembership?.findUnique?.({ where: { organizationId_userId: { organizationId, userId } } }),
+            db.enrollment?.findUnique?.({ where: { userId_courseId: { userId, courseId } } }),
+          ]);
+          return membership?.role === 'STUDENT' && enrollment?.status === 'Active' ? enrollment : null;
+        } };
+      }
       if (name === '@/lib/responses') return { errorResponse: (message, data) => ({ status: 'error', message, data }), successResponse: (message, data) => ({ status: 'success', message, data }) };
       if (name === '@/lib/arcjet') return { __esModule: true, default: { withRule() { return this; }, protect: async () => ({ isDenied: () => false }) }, fixedWindow: () => ({}) };
       if (name === '@arcjet/next') return { request: async () => ({}) };

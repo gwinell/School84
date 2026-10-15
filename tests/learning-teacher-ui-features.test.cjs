@@ -230,16 +230,17 @@ test('authenticated tenant learning layout uses only the organization resolved f
   const h = load('app/dashboard/schools/[organizationSlug]/layout.tsx', {
     'next/navigation': { notFound() { throw new Error('NOT_FOUND'); } },
     '@/components/brand': { Brand: 'Brand' },
+    '@/app/data/user/require-user': { requireUser: async () => ({ user: { id: 'student-a', role: 'user' } }) },
     '@/lib/prisma': { default: { organization: { findUnique: async (args) => {
       query = args;
-      return { id: 'school-b', name: 'School B', slug: 'school-b', logoUrl: 'https://school-b.example.test/logo.png', primaryColor: '#285a42' };
+      return { id: 'school-b', name: 'School B', slug: 'school-b', logoUrl: 'https://school-b.example.test/logo.png', primaryColor: '#285a42', type: 'SCHOOL', ownerUserId: null };
     } } } },
   });
   const tree = await h.render('default', { params: Promise.resolve({ organizationSlug: 'school-b' }), children: 'learning content' });
   assert.equal(query.where.slug, 'school-b');
-  assert.deepEqual(plain(query.select), { id: true, name: true, slug: true, logoUrl: true, primaryColor: true });
+  assert.deepEqual(plain(query.select), { id: true, name: true, slug: true, logoUrl: true, primaryColor: true, type: true, ownerUserId: true });
   const brand = find(tree, (node) => node.type === 'Brand');
-  assert.deepEqual(plain(brand.props.brand), { id: 'school-b', name: 'School B', slug: 'school-b', logoUrl: 'https://school-b.example.test/logo.png', primaryColor: '#285a42' });
+  assert.deepEqual(plain(brand.props.brand), { id: 'school-b', name: 'School B', slug: 'school-b', logoUrl: 'https://school-b.example.test/logo.png', primaryColor: '#285a42', type: 'SCHOOL', ownerUserId: null });
   assert.match(text(tree), /learning content/);
 });
 

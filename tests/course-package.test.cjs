@@ -40,8 +40,8 @@ function load(file, cache = {}, mocks = {}) {
   return exports;
 }
 
-const { createCoursePackageZip, parseCoursePackageZip, sha256 } = load('lib/course-package/archive.ts');
-const asset = new Uint8Array([1, 2, 3, 4]);
+const { createCoursePackageZip, parseCoursePackageZip, sha256, assetSignatureMatches } = load('lib/course-package/archive.ts');
+const asset = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
 const assetPath = 'assets/abcd1234.png';
 function manifest() {
   return {
@@ -97,6 +97,53 @@ test('rejects an unsupported manifest version and undeclared archive members', (
   assert.throws(() => parseCoursePackageZip(fflate.zipSync(files)), /unsupported archive path|undeclared files/i);
 });
 
+test('package creation and parsing reject assets whose bytes do not match the declared MIME type', () => {
+  const mismatched = new Uint8Array([0x25, 0x50, 0x44, 0x46, 1, 2, 3, 4]);
+  const hostile = manifest();
+  hostile.assets[0] = { ...hostile.assets[0], size: mismatched.length, sha256: sha256(mismatched) };
+  assert.throws(() => createCoursePackageZip({ manifest: hostile, assets: new Map([[assetPath, mismatched]]) }), /content does not match declared type/i);
+
+  // Bypass the trusted exporter to simulate a hand-crafted .s84course upload.
+  const bytes = fflate.zipSync({ 'manifest.json': Buffer.from(JSON.stringify(hostile)), [assetPath]: mismatched });
+  assert.throws(() => parseCoursePackageZip(bytes), /content does not match declared type/i);
+});
+
+function isoBmffFtyp({ brand, compatible = [], extended = false, declaredSize } = {}) {
+  const headerSize = extended ? 16 : 8;
+  const size = headerSize + 8 + compatible.length * 4;
+  const bytes = Buffer.alloc(size);
+  if (extended) {
+    bytes.writeUInt32BE(1, 0);
+    bytes.write('ftyp', 4, 'ascii');
+    bytes.writeBigUInt64BE(BigInt(declaredSize ?? size), 8);
+  } else {
+    bytes.writeUInt32BE(declaredSize ?? size, 0);
+    bytes.write('ftyp', 4, 'ascii');
+  }
+  bytes.write(brand, headerSize, 4, 'ascii');
+  bytes.writeUInt32BE(0, headerSize + 4);
+  compatible.forEach((value, index) => bytes.write(value, headerSize + 8 + index * 4, 4, 'ascii'));
+  return new Uint8Array(bytes);
+}
+
+test('MIME sniffing accepts bounded regular and extended MP4 and AVIF ftyp boxes', () => {
+  assert.equal(assetSignatureMatches(isoBmffFtyp({ brand: 'isom', compatible: ['mp42'] }), 'video/mp4'), true);
+  assert.equal(assetSignatureMatches(isoBmffFtyp({ brand: 'mp42', compatible: ['isom'], extended: true }), 'video/mp4'), true);
+  assert.equal(assetSignatureMatches(isoBmffFtyp({ brand: 'avif', compatible: ['mif1'] }), 'image/avif'), true);
+  assert.equal(assetSignatureMatches(isoBmffFtyp({ brand: 'mif1', compatible: ['avif'], extended: true }), 'image/avif'), true);
+});
+
+test('MIME sniffing rejects invalid ISO-BMFF ftyp sizes, alignment and brands outside the box', () => {
+  assert.equal(assetSignatureMatches(isoBmffFtyp({ brand: 'isom', declaredSize: 8 }), 'video/mp4'), false);
+  assert.equal(assetSignatureMatches(isoBmffFtyp({ brand: 'isom', declaredSize: 100 }), 'video/mp4'), false);
+  assert.equal(assetSignatureMatches(isoBmffFtyp({ brand: 'isom', compatible: ['mp42'], declaredSize: 17 }), 'video/mp4'), false);
+  assert.equal(assetSignatureMatches(isoBmffFtyp({ brand: 'avif', extended: true, declaredSize: 0xffffffffffffffffn }), 'image/avif'), false);
+  const boxWithoutAvif = isoBmffFtyp({ brand: 'mif1' });
+  const trailingBrand = new Uint8Array([...boxWithoutAvif, 0x61, 0x76, 0x69, 0x66]);
+  assert.equal(assetSignatureMatches(trailingBrand, 'image/avif'), false);
+  assert.equal(assetSignatureMatches(isoBmffFtyp({ brand: 'qt  ' }), 'video/mp4'), false);
+});
+
 test('rejects zip-slip and hidden/dot paths before extraction', () => {
   for (const hostile of ['../manifest.json', '/manifest.json', 'assets/../../escape.png', 'assets/.hidden.png', 'assets\\escape.png']) {
     const bundle = fflate.zipSync({ [hostile]: Buffer.from('{}') });
@@ -141,7 +188,10 @@ test('package import rejects an author outside the selected organization before 
   let packageImports = 0;
   const route = load('app/api/teacher/course-packages/import/route.ts', {}, {
     '@/app/data/teacher/require-teacher': { requireTeacher: async () => ({ user: { id: 'teacher-a', role: 'teacher' } }) },
-    '@/lib/prisma': { organizationMembership: { findUnique: async () => { organizationChecks++; return null; } } },
+    '@/lib/prisma': {
+      organization: { findUnique: async () => ({ id: 'clh1234567890123456789012', type: 'SCHOOL' }) },
+      organizationMembership: { findUnique: async () => { organizationChecks++; return null; } },
+    },
     '@/lib/course-package/archive': { COURSE_PACKAGE_MAX_ARCHIVE_BYTES: 125 * 1024 * 1024 },
     '@/lib/course-package/github-source': { fetchGithubCourseBundle: async () => { throw Error('should not fetch'); }, readBoundedBody: async (request) => new Uint8Array(await request.arrayBuffer()) },
     '@/lib/course-package/service': { importCoursePackage: async () => { packageImports++; } },
@@ -156,7 +206,7 @@ test('package import rejects an author outside the selected organization before 
 test('package import does not return database or infrastructure exception details', async () => {
   const route = load('app/api/teacher/course-packages/import/route.ts', {}, {
     '@/app/data/teacher/require-teacher': { requireTeacher: async () => ({ user: { id: 'admin-a', role: 'admin' } }) },
-    '@/lib/prisma': { organization: { findUnique: async () => ({ id: 'clh1234567890123456789012' }) } },
+    '@/lib/prisma': { organization: { findUnique: async () => ({ id: 'clh1234567890123456789012', type: 'SCHOOL' }) } },
     '@/lib/course-package/archive': { COURSE_PACKAGE_MAX_ARCHIVE_BYTES: 125 * 1024 * 1024 },
     '@/lib/course-package/github-source': { fetchGithubCourseBundle: async () => { throw Error('should not fetch'); }, readBoundedBody: async (request) => new Uint8Array(await request.arrayBuffer()) },
     '@/lib/course-package/service': { importCoursePackage: async () => { throw new Error('postgres://secret.internal/database'); } },
@@ -171,7 +221,7 @@ test('package import does not return database or infrastructure exception detail
 test('package import rejects an oversized multipart Content-Length before reading the body', async () => {
   const route = load('app/api/teacher/course-packages/import/route.ts', {}, {
     '@/app/data/teacher/require-teacher': { requireTeacher: async () => ({ user: { id: 'admin-a', role: 'admin' } }) },
-    '@/lib/prisma': { organization: { findUnique: async () => ({ id: 'clh1234567890123456789012' }) } },
+    '@/lib/prisma': { organization: { findUnique: async () => ({ id: 'clh1234567890123456789012', type: 'SCHOOL' }) } },
     '@/lib/course-package/archive': { COURSE_PACKAGE_MAX_ARCHIVE_BYTES: 100 * 1024 * 1024 },
     '@/lib/course-package/github-source': {},
     '@/lib/course-package/service': { importCoursePackage: async () => { throw new Error('must not import'); } },
@@ -192,7 +242,7 @@ test('package imports are serialized to keep concurrent archive parsing within t
   const importGate = new Promise((resolve) => { finishImport = resolve; });
   const route = load('app/api/teacher/course-packages/import/route.ts', {}, {
     '@/app/data/teacher/require-teacher': { requireTeacher: async () => ({ user: { id: 'admin-a', role: 'admin' } }) },
-    '@/lib/prisma': { organization: { findUnique: async () => ({ id: 'clh1234567890123456789012' }) } },
+    '@/lib/prisma': { organization: { findUnique: async () => ({ id: 'clh1234567890123456789012', type: 'SCHOOL' }) } },
     '@/lib/course-package/archive': { COURSE_PACKAGE_MAX_ARCHIVE_BYTES: 100 * 1024 * 1024 },
     '@/lib/course-package/github-source': {},
     '@/lib/course-package/service': { importCoursePackage: async () => { markImportStarted(); return importGate; } },
