@@ -36,29 +36,9 @@ Invitations use verified accounts and one-time links. A person's access in one s
 
 ## Quick start
 
-You need Git and Docker with Docker Compose. These steps initialize a **new, empty local database** and seed demo accounts; they are not an upgrade path for a database that already contains school data.
+For personal learning, install Docker Desktop, download and unzip this repository, then double-click **Start SchoolSphere** (`.command` on macOS, `.bat` on Windows; Linux users can run `scripts/local-school.sh`). The first launch prepares the app, creates local settings, initializes a fresh database, opens the site, and signs you in with the demo learner shortcut. No Git or terminal setup is needed on Windows; macOS may ask you to confirm opening the launcher the first time. To stop without removing courses or progress, double-click **Stop SchoolSphere**. See the [plain-language personal install guide](docs/LOCAL_PERSONAL_INSTALL_RU.md).
 
-```bash
-git clone https://github.com/gwinell/School84.git
-cd School84
-cp .env.example .env
-
-docker compose --profile build-image build python-sandbox-image
-docker compose up -d db
-docker compose --profile init-schema run --build --rm schema-init
-docker compose up --build -d app python-runner
-docker compose --profile local-admin run --rm local-admin
-```
-
-Open [http://localhost:3001](http://localhost:3001). The fixed-code demo login is disabled by default. To enable the local-only **Войти как преподаватель** / **Войти как ученик** shortcuts, set `DEMO_LOGIN_ENABLED=true` in `.env` and restart the app with `docker compose up -d app`. The demo OTP is `840084`; use this shortcut only for local evaluation. The learner account includes a sample Python course and progress.
-
-The app and runner are intended for a trusted local host. The runner uses the Docker socket to start restricted containers; keep services bound to loopback and do not expose this demo configuration to the public internet. To stop the stack without deleting its database:
-
-```bash
-docker compose down
-```
-
-For manual Node.js setup, environment configuration, demo curriculum import, backup/restore, and safe application updates, see [Local Development and Operations](docs/LOCAL_DEVELOPMENT.md).
+The local app and code runner are for this trusted computer only. Services bind to loopback; do not expose this demo configuration to the public internet. The demo login is deliberately local-only. For a school installation, manual setup, backup/restore, or updates, see [Local Development and Operations](docs/LOCAL_DEVELOPMENT.md).
 
 Course authors can import or export `.s84course` bundles from the teacher area. The package manifest, media layout, Python/JavaScript checkers, and optional progress file are documented in the [Course Package Format](docs/COURSE_PACKAGE_FORMAT.md). Learners can also import a prepared package into a personal learning space. Converting a source GitHub repository into a course is an external agent-assisted preparation step; the app imports the resulting package and does not convert repositories itself. See the [agent conversion workflow](docs/COURSE_PACKAGE_AGENT_WORKFLOW.md) and run `pnpm course-package:validate path/to/course.s84course` before importing.
 

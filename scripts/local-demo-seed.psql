@@ -1,0 +1,29 @@
+-- This profile is gated by a marker written only after this launcher
+-- initialized a verified-empty database. Existing installs perform no writes.
+SELECT to_regclass('public.school84_local_install_state') IS NOT NULL AS has_install_state \gset
+\if :has_install_state
+BEGIN;
+SELECT pg_advisory_xact_lock(841029);
+SELECT EXISTS (
+  SELECT 1 FROM school84_local_install_state WHERE state = 'demo_seed_pending_v1'
+) AND NOT EXISTS (
+  SELECT 1 FROM "user" WHERE email IN ('student@school84.local', 'admin@school84.local')
+) AND NOT EXISTS (
+  SELECT 1 FROM "Course" WHERE id = 'school84-demo-python'
+) AS should_seed \gset
+\if :should_seed
+\i /local-admin.sql
+UPDATE school84_local_install_state
+SET state = 'demo_seed_complete_v1', "updatedAt" = now()
+WHERE state = 'demo_seed_pending_v1';
+\echo 'Created the local demo learner. This seed will not run again.'
+\else
+UPDATE school84_local_install_state
+SET state = 'demo_seed_skipped_v1', "updatedAt" = now()
+WHERE state = 'demo_seed_pending_v1';
+\echo 'Existing learner/course data found; skipped demo seed.'
+\endif
+COMMIT;
+\else
+\echo 'No fresh-install marker; skipped demo seed and left this database unchanged.'
+\endif

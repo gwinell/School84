@@ -1,0 +1,8 @@
+-- Created only by the personal launcher after db push succeeds on a verified
+-- empty database. Existing SchoolSphere databases never receive this marker.
+CREATE TABLE school84_local_install_state (
+  state text PRIMARY KEY,
+  "updatedAt" timestamptz NOT NULL DEFAULT now()
+);
+INSERT INTO school84_local_install_state (state)
+VALUES ('demo_seed_pending_v1');

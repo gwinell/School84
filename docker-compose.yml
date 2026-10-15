@@ -12,6 +12,7 @@ services:
       - "127.0.0.1:5433:5432"
     volumes:
       - school84-db:/var/lib/postgresql/data
+      - ./scripts/local-install-state.psql:/local-install-state.psql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -119,7 +120,7 @@ services:
     image: postgres:16-alpine
     profiles: ["local-admin"]
     depends_on:
-      app:
+      db:
         condition: service_healthy
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-school84}
@@ -127,13 +128,15 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-school84-local-password}
     volumes:
       - ./scripts/local-admin.sql:/local-admin.sql:ro
+      - ./scripts/local-demo-seed.psql:/local-demo-seed.psql:ro
+      - ./scripts/local-install-state.psql:/local-install-state.psql:ro
     entrypoint: ["psql"]
     command:
       - postgresql://${POSTGRES_USER:-school84}:${POSTGRES_PASSWORD:-school84-local-password}@db:5432/${POSTGRES_DB:-school84}
       - -v
       - ON_ERROR_STOP=1
       - -f
-      - /local-admin.sql
+      - /local-demo-seed.psql
     restart: "no"
 
 volumes:

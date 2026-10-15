@@ -3,20 +3,24 @@
 This guide covers a fresh local install, demo data, backups, safe application updates, and recovery. For the existing-database tenancy upgrade, see [TENANCY_UPGRADE.md](TENANCY_UPGRADE.md).
 
 
-The recommended local setup runs the app, PostgreSQL, and the isolated Python runner in Docker. The app starts without changing the database schema. The app is available at [http://localhost:3001](http://localhost:3001); the existing port 3000 is left untouched.
+For a personal learning setup, start with the [plain-language one-click install guide](LOCAL_PERSONAL_INSTALL_RU.md). The guide below is for maintainers, school administrators, and people who prefer to operate Docker Compose directly.
+
+The local stack runs the app, PostgreSQL, and the isolated Python runner in Docker. The app starts without changing the database schema except for the explicit first-install schema-init step. The app is available at [http://localhost:3001](http://localhost:3001); the existing port 3000 is left untouched.
 
 ```bash
 docker compose --profile build-image build python-sandbox-image
 docker compose up -d db
 # Fresh installations only: explicitly initialize the schema after reviewing it.
 docker compose --profile init-schema run --build --rm schema-init
+# Record that this launcher/operator just initialized an empty database.
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -f /local-install-state.psql'
 docker compose up --build -d app python-runner
 docker compose --profile local-admin run --rm local-admin
 ```
 
-This sequence is for a **new, empty local database only**. `schema-init` runs Prisma `db push`; never run it against an existing school database. Existing installations should follow the [tenant database upgrade runbook](TENANCY_UPGRADE.md), which performs the one-time legacy data backfill. The app and runner should be published only on a trusted machine: the runner has access to the Docker socket, and the default Compose values are demo credentials rather than production secrets. Keep the database port and app bound to loopback unless a separately reviewed production deployment adds TLS, a firewall, real authentication providers, email delivery, and secret management.
+This sequence is for a **new, empty local database only**. `schema-init` runs Prisma `db push`; never run it against an existing school database. The install-state marker and demo seed are also only for that freshly initialized database. Existing installations should follow the [tenant database upgrade runbook](TENANCY_UPGRADE.md), which performs the one-time legacy data backfill. The app and runner should be published only on a trusted machine: the runner has access to the Docker socket, and the default Compose values are demo credentials rather than production secrets. Keep the database port and app bound to loopback unless a separately reviewed production deployment adds TLS, a firewall, real authentication providers, email delivery, and secret management.
 
-The fixed-code demo login is disabled by default. To enable one-click local demo access, set `DEMO_LOGIN_ENABLED=true` in `.env`, then run `docker compose up -d app`. The login page will show **Войти как преподаватель** and **Войти как ученик** for `admin@school84.local` and `student@school84.local`; the learner has the Python course with sample progress and activity. This shortcut uses the fixed demo OTP `840084` and is for local evaluation only. Set `DEMO_LOGIN_ENABLED=false` to turn it off. Regular email OTP login remains available; codes are printed in app logs:
+The fixed-code demo login is disabled by default. The personal install launcher creates `.env` only if one is absent, enabling local console mail and one-click demo access for that personal setup. The login page will show **Войти как преподаватель** and **Войти как ученик** for `admin@school84.local` and `student@school84.local`; the learner has the Python course with sample progress and activity. This shortcut uses the fixed demo OTP `840084` and is for local evaluation only. Set `DEMO_LOGIN_ENABLED=false` to turn it off. Regular email OTP login remains available; codes are printed in app logs:
 
 ```bash
 docker compose logs -f app
@@ -33,7 +37,7 @@ The course contains 9 chapters, 16 lessons, two reading cells and two autograded
 
 The local profile bypasses Arcjet and sends no email. To use real GitHub OAuth, Resend, or Arcjet, set their values and enable/configure them in `.env`. Course image uploads use the existing S3-compatible storage integration; point the `AWS_*` settings to a reachable bucket to enable uploads. The Python runner uses the local Docker socket to launch isolated sandboxes; keep this stack on the trusted local machine.
 
-Stop the app while preserving the database:
+Stop the app while preserving the database. The personal installer's **Stop SchoolSphere** launcher does this for you; from Docker Compose:
 
 ```bash
 docker compose down
