@@ -34,6 +34,9 @@ function load(file, cache = {}, mocks = {}) {
       if (name === 'zod') return require('zod');
       if (name === './schema') return load('lib/course-package/schema.ts', cache);
       if (name === './archive') return load('lib/course-package/archive.ts', cache);
+      if (name === '@/lib/arcjet') return { __esModule: true, default: { withRule: () => ({ protect: async () => ({ isDenied: () => false }) }) }, fixedWindow: () => ({}) };
+      if (name === '@/lib/course-package/import-admission') return { coursePackageGlobalRateLimit: { protect: async () => ({ isDenied: () => false }) }, acquireCoursePackageImportSlot: () => () => {} };
+      if (name === '@/lib/prisma') return {};
       return require(name);
     },
   }, { filename: file });
@@ -235,17 +238,137 @@ test('package import rejects an oversized multipart Content-Length before readin
   assert.equal(response.status, 413);
 });
 
-test('package imports are serialized to keep concurrent archive parsing within the app memory budget', async () => {
+function teacherPackageImport({ userId = 'teacher-a', denied = false, deniedGlobal = false, importer } = {}) {
+  const rateLimit = { protect: async (_request, options) => {
+    rateLimit.calls.push(options);
+    return { isDenied: () => denied };
+  }, calls: [] };
+  const globalRateLimit = { protect: async (_request, options) => {
+    globalRateLimit.calls.push(options);
+    return { isDenied: () => deniedGlobal };
+  }, calls: [] };
+  let slotTaken = false;
+  const rules = [];
+  let imports = 0;
+  const route = load('app/api/teacher/course-packages/import/route.ts', {}, {
+    '@/app/data/teacher/require-teacher': { requireTeacher: async () => ({ user: { id: typeof userId === 'function' ? userId() : userId, role: 'admin' } }) },
+    '@/lib/arcjet': { __esModule: true, default: { withRule: (rule) => { rules.push(rule); return rateLimit; } }, fixedWindow: (options) => ({ kind: 'fixed-window', options }) },
+    '@/lib/course-package/import-admission': { coursePackageGlobalRateLimit: globalRateLimit, acquireCoursePackageImportSlot: () => {
+      if (slotTaken) return null;
+      slotTaken = true;
+      let released = false;
+      return () => { if (!released) { released = true; slotTaken = false; } };
+    } },
+    '@/lib/prisma': { organization: { findUnique: async () => ({ id: 'clh1234567890123456789012', type: 'SCHOOL' }) } },
+    '@/lib/course-package/archive': { COURSE_PACKAGE_MAX_ARCHIVE_BYTES: 125 * 1024 * 1024 },
+    '@/lib/course-package/github-source': { fetchGithubCourseBundle: async () => new Uint8Array([1, 2, 3]) },
+    '@/lib/course-package/service': { importCoursePackage: async (input) => { imports++; return importer ? importer(input) : { courseId: `course-${imports}`, title: 'Imported', slug: `imported-${imports}`, progress: { importedLearners: 0 } }; } },
+  });
+  const request = () => {
+    const body = new FormData();
+    body.append('organizationId', 'clh1234567890123456789012');
+    body.append('githubUrl', 'https://github.com/acme/course/blob/main/course.s84course');
+    return new Request('https://school.test/api/teacher/course-packages/import', { method: 'POST', body });
+  };
+  return { route, request, imports: () => imports, rateLimit, globalRateLimit, rules };
+}
+
+test('school package importer authenticates before applying a per-user Arcjet rate limit', async () => {
+  let rateChecks = 0;
+  const route = load('app/api/teacher/course-packages/import/route.ts', {}, {
+    '@/app/data/teacher/require-teacher': { requireTeacher: async () => { throw new Error('unauthenticated'); } },
+    '@/lib/arcjet': { __esModule: true, default: { withRule: () => ({ protect: async () => { rateChecks++; return { isDenied: () => false }; } }) }, fixedWindow: () => ({}) },
+    '@/lib/prisma': {},
+    '@/lib/course-package/archive': { COURSE_PACKAGE_MAX_ARCHIVE_BYTES: 125 * 1024 * 1024 },
+    '@/lib/course-package/github-source': {},
+    '@/lib/course-package/service': {},
+    '@/lib/course-package/import-admission': { coursePackageGlobalRateLimit: { protect: async () => ({ isDenied: () => false }) }, acquireCoursePackageImportSlot: () => () => {} },
+  });
+  await assert.rejects(route.POST(new Request('https://school.test/api/teacher/course-packages/import', { method: 'POST' })), /unauthenticated/);
+  assert.equal(rateChecks, 0);
+
+  const limited = teacherPackageImport({ denied: true });
+  const response = await limited.route.POST(limited.request());
+  assert.equal(response.status, 429);
+  assert.equal(limited.imports(), 0);
+  assert.deepEqual(JSON.parse(JSON.stringify(limited.rateLimit.calls)), [{ fingerprint: 'teacher-a' }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(limited.globalRateLimit.calls)), [{ fingerprint: 'course-package-imports' }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(limited.rules)), [{ kind: 'fixed-window', options: { mode: 'LIVE', window: '10m', max: 3 } }]);
+
+  const globallyLimited = teacherPackageImport({ deniedGlobal: true });
+  assert.equal((await globallyLimited.route.POST(globallyLimited.request())).status, 429);
+  assert.equal(globallyLimited.rateLimit.calls.length, 0, 'global rejection happens before the per-teacher bucket');
+  assert.equal(globallyLimited.imports(), 0);
+});
+
+test('school imports share one process slot across teachers and release it after completion', async () => {
+  // Arcjet buckets cap distributed attempts; the shared local slot bounds archive expansion in each process.
+  let currentUser = 'teacher-a';
+  const started = [];
+  const releases = new Map();
+  const fixture = teacherPackageImport({
+    userId: () => currentUser,
+    importer: ({ userId }) => new Promise((resolve) => { started.push(userId); releases.set(userId, resolve); }),
+  });
+  const firstImport = fixture.route.POST(fixture.request());
+  while (!started.includes('teacher-a')) await new Promise((resolve) => setImmediate(resolve));
+  currentUser = 'teacher-b';
+  const duplicate = await fixture.route.POST(fixture.request());
+  assert.equal(duplicate.status, 429);
+  assert.equal(started.length, 1);
+
+  releases.get('teacher-a')({ courseId: 'course-a', title: 'A', slug: 'a', progress: { importedLearners: 0 } });
+  assert.equal((await firstImport).status, 201);
+  const secondImport = fixture.route.POST(fixture.request());
+  while (!started.includes('teacher-b')) await new Promise((resolve) => setImmediate(resolve));
+  releases.get('teacher-b')({ courseId: 'course-b', title: 'B', slug: 'b', progress: { importedLearners: 0 } });
+  assert.equal((await secondImport).status, 201);
+  assert.deepEqual(JSON.parse(JSON.stringify(fixture.rateLimit.calls)), [{ fingerprint: 'teacher-a' }, { fingerprint: 'teacher-b' }, { fingerprint: 'teacher-b' }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(fixture.globalRateLimit.calls)), Array.from({ length: 3 }, () => ({ fingerprint: 'course-package-imports' })));
+});
+
+test('course package import admission configures its shared rate cap and single local slot', () => {
+  const rules = [];
+  const admission = load('lib/course-package/import-admission.ts', {}, {
+    '@/lib/arcjet': { __esModule: true, default: { withRule: (rule) => { rules.push(rule); return { protect: async () => ({ isDenied: () => false }) }; } }, fixedWindow: (options) => ({ kind: 'fixed-window', options }) },
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(rules)), [{ kind: 'fixed-window', options: { mode: 'LIVE', window: '10m', max: 8 } }]);
+  const release = admission.acquireCoursePackageImportSlot();
+  assert.equal(typeof release, 'function');
+  assert.equal(admission.acquireCoursePackageImportSlot(), null);
+  release();
+  release();
+  assert.equal(typeof admission.acquireCoursePackageImportSlot(), 'function', 'the slot can be reacquired after release');
+});
+
+test('a failed teacher import releases the shared slot in finally', async () => {
+  let attempts = 0;
+  const fixture = teacherPackageImport({ importer: async () => {
+    attempts++;
+    if (attempts === 1) throw new Error('failed parse');
+    return { courseId: 'course-ok', title: 'Imported', slug: 'imported', progress: { importedLearners: 0 } };
+  } });
+  assert.equal((await fixture.route.POST(fixture.request())).status, 400);
+  assert.equal((await fixture.route.POST(fixture.request())).status, 201);
+  assert.equal(attempts, 2);
+});
+
+test('a second in-flight teacher package import is rejected by the shared admission slot', async () => {
   let markImportStarted;
   const importStarted = new Promise((resolve) => { markImportStarted = resolve; });
   let finishImport;
   const importGate = new Promise((resolve) => { finishImport = resolve; });
+  let slotTaken = false;
   const route = load('app/api/teacher/course-packages/import/route.ts', {}, {
     '@/app/data/teacher/require-teacher': { requireTeacher: async () => ({ user: { id: 'admin-a', role: 'admin' } }) },
     '@/lib/prisma': { organization: { findUnique: async () => ({ id: 'clh1234567890123456789012', type: 'SCHOOL' }) } },
     '@/lib/course-package/archive': { COURSE_PACKAGE_MAX_ARCHIVE_BYTES: 100 * 1024 * 1024 },
     '@/lib/course-package/github-source': {},
     '@/lib/course-package/service': { importCoursePackage: async () => { markImportStarted(); return importGate; } },
+    '@/lib/course-package/import-admission': {
+      coursePackageGlobalRateLimit: { protect: async () => ({ isDenied: () => false }) },
+      acquireCoursePackageImportSlot: () => { if (slotTaken) return null; slotTaken = true; return () => { slotTaken = false; }; },
+    },
   });
   const makeRequest = () => {
     const body = new FormData();

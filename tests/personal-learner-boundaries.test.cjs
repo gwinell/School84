@@ -25,6 +25,9 @@ function load(file, mocks = {}) {
       if (Object.prototype.hasOwnProperty.call(mocks, name)) return mocks[name];
       if (name === 'server-only') return {};
       if (name === 'next/server') return { NextResponse: { json: (body, options) => Response.json(body, options) } };
+      if (name === '@/lib/arcjet') return { __esModule: true, default: { withRule: () => ({ protect: async () => ({ isDenied: () => false }) }) }, fixedWindow: () => ({}) };
+      if (name === '@/lib/course-package/import-admission') return { coursePackageGlobalRateLimit: { protect: async () => ({ isDenied: () => false }) }, acquireCoursePackageImportSlot: () => () => {} };
+      if (name === '@/lib/prisma') return {};
       return require(name);
     },
   }, { filename: file });

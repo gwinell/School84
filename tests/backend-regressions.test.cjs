@@ -141,13 +141,103 @@ test('certificate rejects stale lesson completion when current cells remain unpa
   let issued = 0;
   const db = {
     certificate: { findUnique: async () => null, create: async () => { issued++; } },
-    course: { findUnique: async () => ({ id: 'course', title: 'Course', slug: 'course', status: 'PUBLISHED', level: 'BEGINNER', duration: 5, user: { name: 'Teacher' }, courseChapters: [{ lessons: [{ id: 'lesson', cells: [{ id: 'new-task' }] }] }] }) },
+    course: { findUnique: async () => ({ id: 'course', title: 'Course', slug: 'course', status: 'PUBLISHED', level: 'BEGINNER', duration: 5, organization: { type: 'SCHOOL' }, user: { name: 'Teacher' }, courseChapters: [{ lessons: [{ id: 'lesson', cells: [{ id: 'new-task' }] }] }] }) },
     lessonProgress: { count: async () => 1 }, lessonCellProgress: { count: async () => 0 }, user: { findUnique: async () => ({ name: 'Student' }) },
     $transaction: async (fn) => fn(db),
   };
   const subject = load('lib/certificates/issue-certificate-if-eligible.ts', { '@/lib/prisma': db, '@/lib/generated/prisma/client': { Prisma: {} }, './generate-verification-code': { generateVerificationCode: () => 'code' } });
   const result = await subject.issueCertificateIfEligible({ userId: 'student', courseId: 'course' });
   assert.equal(result.reason, 'not-complete'); assert.equal(issued, 0);
+});
+
+function certificateIssueCase(organizationType) {
+  let writes = 0;
+  let createdCertificate;
+  let courseQuery;
+  let existingChecks = 0;
+  let progressChecks = 0;
+  const tx = {
+    certificate: { findUnique: async () => { existingChecks++; return null; }, create: async ({ data }) => { writes++; createdCertificate = data; } },
+    course: { findUnique: async (query) => {
+      courseQuery = query;
+      return { id: 'course', title: 'Private studies', slug: 'private-studies', level: 'BEGINNER', duration: 10, status: 'PUBLISHED', organization: { type: organizationType }, user: { name: 'Instructor' }, courseChapters: [{ lessons: [{ id: 'lesson', cells: [] }] }] };
+    } },
+    lessonProgress: { count: async () => { progressChecks++; return 1; } },
+    user: { findUnique: async () => ({ name: 'Learner' }) },
+  };
+  const subject = load('lib/certificates/issue-certificate-if-eligible.ts', {
+    '@/lib/prisma': { $transaction: async (callback) => callback(tx) },
+    '@/lib/generated/prisma/client': { Prisma: {} },
+    './generate-verification-code': { generateVerificationCode: () => 'verification-code' },
+  });
+  return { issue: () => subject.issueCertificateIfEligible({ userId: 'learner-a', courseId: 'course' }), writes: () => writes, createdCertificate: () => createdCertificate, courseQuery: () => courseQuery, existingChecks: () => existingChecks, progressChecks: () => progressChecks };
+}
+
+test('school courses still issue certificates while personal course certificate issuance is blocked', async () => {
+  const school = certificateIssueCase('SCHOOL');
+  assert.deepEqual(JSON.parse(JSON.stringify(await school.issue())), { issued: true, verificationCode: 'verification-code' });
+  assert.equal(school.writes(), 1);
+  assert.equal(school.createdCertificate().organizationTypeSnapshot, 'SCHOOL');
+  const schoolCourseFilter = JSON.stringify(school.courseQuery().select);
+  assert.match(schoolCourseFilter, /organization/);
+
+  const personal = certificateIssueCase('PERSONAL');
+  const result = JSON.parse(JSON.stringify(await personal.issue()));
+  assert.notEqual(result.issued, true);
+  assert.equal(personal.writes(), 0);
+  assert.equal(personal.existingChecks(), 0);
+  assert.equal(personal.progressChecks(), 0);
+  assert.match(JSON.stringify(personal.courseQuery().select), /organization/);
+});
+
+test('personal certificate claim surfaces the private-course restriction despite active enrollment', async () => {
+  let issueCalls = 0;
+  const subject = load('app/dashboard/certificates/actions.ts', {
+    '@/lib/arcjet': { __esModule: true, default: { withRule: () => ({ protect: async () => ({ isDenied: () => false }) }) }, fixedWindow: () => ({}) },
+    '@arcjet/next': { request: async () => ({}) },
+    '@/lib/prisma': { course: { findUnique: async () => ({ organizationId: 'personal-a', organization: { type: 'PERSONAL' } }) }, certificate: { findUnique: async () => null } },
+    '@/lib/responses': { errorResponse: (message, data) => ({ status: 'error', message, data }), successResponse: (message, data) => ({ status: 'success', message, data }) },
+    '@/app/data/user/require-user': { requireUser: async () => ({ user: { id: 'learner-a', role: 'user' } }) },
+    '@/app/data/user/course-learner-access': { getCourseLearnerAccess: async () => ({ status: 'Active', accessMode: 'ALL_AT_ONCE' }) },
+    '@/lib/certificates/issue-certificate-if-eligible': { issueCertificateIfEligible: async () => { issueCalls++; return { issued: false, reason: 'private-course' }; } },
+  });
+  const result = await subject.claimCertificateAction({ courseId: 'personal-course' });
+  assert.equal(result.status, 'error');
+  assert.equal(issueCalls, 1);
+});
+
+test('public certificate lookup uses the stored organization type when a course relation is missing', async () => {
+  const certificate = ({ organizationType, snapshotType, courseExists = true }) => ({
+    id: 'certificate-a', verificationCode: 'public-code', recipientName: 'Learner', issuedAt: new Date('2026-01-01'),
+    courseTitleSnapshot: 'Course snapshot', courseSlugSnapshot: 'course-snapshot', levelSnapshot: 'BEGINNER', durationSnapshot: 10,
+    instructorNameSnapshot: 'Instructor', lessonsCountSnapshot: 1, organizationTypeSnapshot: snapshotType,
+    course: courseExists ? { id: 'course-a', slug: 'course', title: 'Course', level: 'BEGINNER', duration: 10, user: { name: 'Instructor' }, courseChapters: [{ lessons: [{ id: 'lesson' }] }], organization: { type: organizationType } } : null,
+    user: { id: 'learner-a', name: 'Learner', image: null, showCertificatesPublicly: true },
+  });
+  async function lookup(options) {
+    let query;
+    const subject = load('app/data/certificate/get-certificate-by-code.ts', {
+      '@/lib/prisma': { certificate: { findUnique: async (input) => {
+        query = input;
+        return certificate(options);
+      } } },
+    });
+    return { result: await subject.getCertificateByCode('public-code'), query };
+  }
+  const personal = await lookup({ organizationType: 'PERSONAL', snapshotType: 'PERSONAL', courseExists: false });
+  assert.equal(personal.result, null);
+  assert.match(JSON.stringify(personal.query.select), /organizationTypeSnapshot/);
+
+  const legacyOrphan = await lookup({ organizationType: null, snapshotType: null, courseExists: false });
+  assert.equal(legacyOrphan.result, null);
+
+  const orphanedSchool = await lookup({ organizationType: null, snapshotType: 'SCHOOL', courseExists: false });
+  assert.equal(orphanedSchool.result.recipient.name, 'Learner');
+  assert.equal(orphanedSchool.result.liveCourse, null);
+
+  const school = await lookup({ organizationType: 'SCHOOL', snapshotType: 'SCHOOL' });
+  assert.equal(school.result.recipient.name, 'Learner');
+  assert.equal(school.result.liveCourse.title, 'Course');
 });
 
 test('legacy quiz fetch enforces sequential lesson access', async () => {

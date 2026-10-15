@@ -399,6 +399,78 @@ test("course package import displays server errors", async () => {
   assert.match(text(find(tree, (n) => n.props.role === "alert")), /Нет прав импортировать курс/);
 });
 
+test("learner package import sends only the selected file and renders the personal learning link", async () => {
+  const requests = [];
+  class CaptureFormData {
+    values = {};
+    set(key, value) { this.values[key] = value; }
+  }
+  const h = load("app/dashboard/import/_components/CoursePackageImportForm.tsx", {
+    "next/link": { default: "Link" },
+    "@/components/ui/button": { Button: "Button" },
+    "@/components/ui/input": { Input: "Input" },
+  }, {
+    FormData: CaptureFormData,
+    fetch: async (url, options) => {
+      requests.push({ url, options });
+      return { ok: true, json: async () => ({ course: { id: "course-a", title: "Imported course", slug: "my/course", organizationSlug: "personal library" } }) };
+    },
+  });
+  const file = { name: "course.s84course", size: 8 };
+  let tree = nodes(h.render("CoursePackageImportForm", {}), true);
+  find(tree, (node) => node.type === "Input" && node.props.type === "file").props.onChange({ target: { files: [file] } });
+  tree = nodes(h.render("CoursePackageImportForm", {}), true);
+  await find(tree, (node) => node.type === "form").props.onSubmit({ preventDefault() {} });
+
+  assert.equal(requests[0].url, "/api/learner/course-packages/import");
+  assert.equal(requests[0].options.method, "POST");
+  assert.deepEqual(requests[0].options.body.values, { file });
+  assert.deepEqual(Object.keys(requests[0].options.body.values), ["file"]);
+  tree = nodes(h.render("CoursePackageImportForm", {}), true);
+  const learningLink = find(tree, (node) => node.type === "Link" && text(node).includes("Start learning"));
+  assert.equal(learningLink.props.href, "/dashboard/schools/personal%20library/courses/my%2Fcourse");
+});
+
+test("learner package import sends only the trimmed GitHub URL and surfaces server errors", async () => {
+  const requests = [];
+  class CaptureFormData {
+    values = {};
+    set(key, value) { this.values[key] = value; }
+  }
+  const h = load("app/dashboard/import/_components/CoursePackageImportForm.tsx", {
+    "next/link": { default: "Link" },
+    "@/components/ui/button": { Button: "Button" },
+    "@/components/ui/input": { Input: "Input" },
+  }, {
+    FormData: CaptureFormData,
+    fetch: async (url, options) => {
+      requests.push({ url, options });
+      return { ok: false, json: async () => ({ error: "Invalid course package" }) };
+    },
+  });
+  let tree = nodes(h.render("CoursePackageImportForm", {}), true);
+  find(tree, (node) => node.type === "input" && node.props.type === "radio" && node.props.value === "githubUrl").props.onChange();
+  tree = nodes(h.render("CoursePackageImportForm", {}), true);
+  find(tree, (node) => node.type === "Input" && node.props.type === "url").props.onChange({ target: { value: "  https://github.com/school/course/blob/main/course.s84course  " } });
+  tree = nodes(h.render("CoursePackageImportForm", {}), true);
+  await find(tree, (node) => node.type === "form").props.onSubmit({ preventDefault() {} });
+
+  assert.equal(requests[0].url, "/api/learner/course-packages/import");
+  assert.deepEqual(requests[0].options.body.values, { githubUrl: "https://github.com/school/course/blob/main/course.s84course" });
+  assert.deepEqual(Object.keys(requests[0].options.body.values), ["githubUrl"]);
+  tree = nodes(h.render("CoursePackageImportForm", {}), true);
+  assert.match(text(find(tree, (node) => node.props.role === "alert")), /Invalid course package/);
+});
+
+test("learner import page and empty dashboard expose the import action", () => {
+  const page = fs.readFileSync(path.join(__dirname, "../app/dashboard/import/page.tsx"), "utf8");
+  const sidebar = fs.readFileSync(path.join(__dirname, "../app/dashboard/_components/DashboardSidebar.tsx"), "utf8");
+  const enrolledCourses = fs.readFileSync(path.join(__dirname, "../app/dashboard/_components/EnrolledCoursesList.tsx"), "utf8");
+  assert.match(page, /<CoursePackageImportForm\s*\/>/);
+  assert.match(sidebar, /title:\s*"Import a course"[\s\S]*?url:\s*"\/dashboard\/import"/);
+  assert.match(enrolledCourses, /href="\/dashboard\/import"/);
+});
+
 test("course package export requests the progress option and downloads the response", async () => {
   const requests = [];
   const downloaded = [];
