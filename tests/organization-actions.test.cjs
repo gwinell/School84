@@ -103,3 +103,80 @@ test("an expired school invitation cannot recreate membership after school remov
   assert.equal(result.status, "error");
   assert.equal(transactions, 0);
 });
+
+test("school settings accept only a validated HTTPS logo and hex color, and revalidate old and new routes", async () => {
+  const updates = [];
+  const paths = [];
+  const prisma = {
+    organization: {
+      findUnique: async () => ({ id: "school-a", slug: "old-school" }),
+      findFirst: async () => null,
+      update: async (query) => { updates.push(query); return { id: "school-a", name: "New School", slug: "new-school", logoUrl: "https://assets.example.test/logo.svg", primaryColor: "#124a73" }; },
+    },
+  };
+  const actions = loadOrganizationActions({
+    "@/lib/prisma": prisma,
+    "@/app/data/user/require-user": { requireUser: async () => ({ user: { id: "admin", role: "user" } }) },
+    "./authorization": { requireOrganizationRole: async (_id, roles) => { assert.deepEqual(roles, ["OWNER", "ADMIN"]); return { membership: { role: "ADMIN" } }; } },
+    "next/cache": { revalidatePath: (route) => paths.push(route) },
+  });
+  const input = { organizationId: "school-a", name: "New School", slug: "new-school", logoUrl: "https://assets.example.test/logo.svg", primaryColor: "#124a73" };
+  const result = await actions.updateOrganizationSettings(input);
+  assert.equal(result.status, "success");
+  assert.deepEqual(updates[0].data, { name: input.name, slug: input.slug, logoUrl: input.logoUrl, primaryColor: input.primaryColor });
+  assert.equal(Object.hasOwn(updates[0].data, "memberships"), false);
+  assert.ok(paths.includes("/schools/old-school"));
+  assert.ok(paths.includes("/schools/new-school/courses"));
+  assert.ok(paths.includes("/dashboard/schools/new-school"));
+
+  for (const invalid of [
+    { ...input, logoUrl: "http://assets.example.test/logo.svg" },
+    { ...input, logoUrl: "https://user:pass@assets.example.test/logo.svg" },
+    { ...input, primaryColor: "red" },
+    { ...input, slug: "Bad Slug" },
+  ]) {
+    const rejected = await actions.updateOrganizationSettings(invalid);
+    assert.equal(rejected.status, "error");
+  }
+  assert.equal(updates.length, 1, "invalid input must not write");
+});
+
+test("school settings reject a slug already used by another organization", async () => {
+  let writes = 0;
+  const actions = loadOrganizationActions({
+    "@/lib/prisma": { organization: {
+      findUnique: async () => ({ id: "school-a", slug: "old-school" }),
+      findFirst: async (query) => { assert.deepEqual(query.where, { slug: "taken-school", id: { not: "school-a" } }); return { id: "school-b" }; },
+      update: async () => { writes++; },
+    } },
+    "@/app/data/user/require-user": { requireUser: async () => ({ user: { id: "owner", role: "user" } }) },
+  });
+  const result = await actions.updateOrganizationSettings({ organizationId: "school-a", name: "New School", slug: "taken-school", logoUrl: "", primaryColor: "" });
+  assert.equal(result.status, "error");
+  assert.equal(writes, 0);
+});
+
+test("school settings translate a concurrent database slug collision into a form error", async () => {
+  const actions = loadOrganizationActions({
+    "@/lib/prisma": { organization: {
+      findUnique: async () => ({ id: "school-a", slug: "old-school" }),
+      findFirst: async () => null,
+      update: async () => { throw Object.assign(new Error("unique constraint"), { code: "P2002" }); },
+    } },
+    "@/app/data/user/require-user": { requireUser: async () => ({ user: { id: "owner", role: "user" } }) },
+  });
+  const result = await actions.updateOrganizationSettings({ organizationId: "school-a", name: "New School", slug: "taken-school", logoUrl: null, primaryColor: null });
+  assert.equal(result.status, "error");
+  assert.match(result.message, /уже занят/);
+});
+
+test("school settings enforce the existing owner/admin authorization boundary", async () => {
+  let databaseReads = 0;
+  const actions = loadOrganizationActions({
+    "@/lib/prisma": { organization: { findUnique: async () => { databaseReads++; } } },
+    "@/app/data/user/require-user": { requireUser: async () => ({ user: { id: "member", role: "user" } }) },
+    "./authorization": { requireOrganizationRole: async (_id, roles) => { assert.deepEqual(roles, ["OWNER", "ADMIN"]); throw new Error("REDIRECT"); } },
+  });
+  await assert.rejects(actions.updateOrganizationSettings({ organizationId: "school-a", name: "New School", slug: "new-school", logoUrl: "", primaryColor: "" }), /REDIRECT/);
+  assert.equal(databaseReads, 0, "unauthorized callers must not inspect or modify school settings");
+});
