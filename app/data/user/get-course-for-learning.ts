@@ -147,7 +147,10 @@ export async function getCourseForLearning({
         : {
             organization: {
               ...(organizationSlug ? { slug: organizationSlug } : {}),
-              memberships: { some: { userId: session.user.id, role: "STUDENT" } },
+              OR: [
+                { type: "SCHOOL", memberships: { some: { userId: session.user.id, role: "STUDENT" } } },
+                { type: "PERSONAL", ownerUserId: session.user.id },
+              ],
             },
             enrollment: { some: { userId: session.user.id, status: "Active" } },
           }),

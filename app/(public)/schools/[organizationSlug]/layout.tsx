@@ -11,7 +11,7 @@ export default async function SchoolPublicLayout({
 }) {
   const { organizationSlug } = await params;
   const organization = await prisma.organization.findUnique({
-    where: { slug: organizationSlug },
+    where: { slug: organizationSlug, type: "SCHOOL" },
     select: { id: true, name: true, slug: true, logoUrl: true, primaryColor: true },
   });
 

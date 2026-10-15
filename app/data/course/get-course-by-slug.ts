@@ -7,7 +7,7 @@ import { getDownloadUrl } from "@/lib/s3/get-download-url";
 
 export async function getCourseBySlug(slug: string, organizationSlug?: string) {
   const courses = await prisma.course.findMany({
-    where: { slug, ...(organizationSlug ? { organization: { slug: organizationSlug } } : {}) },
+    where: { slug, organization: { type: "SCHOOL", ...(organizationSlug ? { slug: organizationSlug } : {}) } },
     take: 2,
     select: {
       id: true,

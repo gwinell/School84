@@ -15,6 +15,31 @@ const CONTENT_TYPES = new Set([
   "video/mp4", "video/webm", "video/quicktime",
 ]);
 
+function ascii(bytes: Uint8Array, start: number, end: number) {
+  return String.fromCharCode(...bytes.subarray(start, end));
+}
+
+/** Validate the declared MIME against the media container signature before storage. */
+export function assetSignatureMatches(bytes: Uint8Array, contentType: string): boolean {
+  const mime = contentType.toLowerCase().split(";")[0]?.trim();
+  if (mime === "image/png") return bytes.length >= 8 && bytes[0] === 0x89 && ascii(bytes, 1, 4) === "PNG" && bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a;
+  if (mime === "image/jpeg") return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  if (mime === "image/webp") return bytes.length >= 12 && ascii(bytes, 0, 4) === "RIFF" && ascii(bytes, 8, 12) === "WEBP";
+  if (mime === "image/gif") return bytes.length >= 6 && ["GIF87a", "GIF89a"].includes(ascii(bytes, 0, 6));
+  if (mime === "image/avif") {
+    if (bytes.length < 12 || ascii(bytes, 4, 8) !== "ftyp") return false;
+    const brands = [ascii(bytes, 8, 12), ...Array.from({ length: Math.floor(Math.max(0, Math.min(bytes.length, 64) - 16) / 4) }, (_, i) => ascii(bytes, 16 + i * 4, 20 + i * 4))];
+    return brands.some((brand) => ["avif", "avis"].includes(brand));
+  }
+  if (mime === "video/mp4" || mime === "video/quicktime") {
+    if (bytes.length < 12 || ascii(bytes, 4, 8) !== "ftyp") return false;
+    const brands = [ascii(bytes, 8, 12), ...Array.from({ length: Math.floor(Math.max(0, Math.min(bytes.length, 64) - 16) / 4) }, (_, i) => ascii(bytes, 16 + i * 4, 20 + i * 4))];
+    return mime === "video/quicktime" ? brands.includes("qt  ") : brands.some((brand) => brand !== "qt  " && /^[A-Za-z0-9 ]{4}$/.test(brand));
+  }
+  if (mime === "video/webm") return bytes.length >= 4 && bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3;
+  return false;
+}
+
 export type CoursePackageFiles = {
   manifest: CoursePackageManifest;
   assets: Map<string, Uint8Array>;
@@ -48,6 +73,7 @@ export function createCoursePackageZip(input: CoursePackageFiles): Uint8Array {
     const bytes = input.assets.get(asset.path);
     if (!bytes || bytes.byteLength !== asset.size || assetDigest(bytes) !== asset.sha256) throw new Error(`Asset integrity check failed: ${asset.path}`);
     if (!CONTENT_TYPES.has(asset.contentType)) throw new Error(`Unsupported asset content type: ${asset.contentType}`);
+    if (!assetSignatureMatches(bytes, asset.contentType)) throw new Error(`Asset content does not match declared type: ${asset.path}`);
     files[asset.path] = bytes;
   }
   if (input.assets.size !== manifest.assets.length) throw new Error("Package contains unexpected asset data");
@@ -91,6 +117,7 @@ export function parseCoursePackageZip(input: Uint8Array): CoursePackageFiles {
     const bytes = extracted[asset.path];
     if (!bytes || bytes.byteLength !== asset.size || assetDigest(bytes) !== asset.sha256) throw new Error(`Asset integrity check failed: ${asset.path}`);
     if (!CONTENT_TYPES.has(asset.contentType)) throw new Error(`Unsupported asset content type: ${asset.contentType}`);
+    if (!assetSignatureMatches(bytes, asset.contentType)) throw new Error(`Asset content does not match declared type: ${asset.path}`);
     assets.set(asset.path, bytes);
   }
   const allowedNames = new Set(["manifest.json", ...(names.includes("progress.json") ? ["progress.json"] : []), ...manifest.assets.map((asset) => asset.path)]);

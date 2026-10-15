@@ -43,7 +43,9 @@ async function readBoundedFormData(request: Request, limit: number): Promise<For
 }
 
 async function canAuthorInOrganization(input: { organizationId: string; userId: string; role: string | null | undefined }) {
-  if (input.role === "admin") return Boolean(await prisma.organization.findUnique({ where: { id: input.organizationId }, select: { id: true } }));
+  const organization = await prisma.organization.findUnique({ where: { id: input.organizationId }, select: { id: true, type: true } });
+  if (!organization || organization.type !== "SCHOOL") return false;
+  if (input.role === "admin") return true;
   const membership = await prisma.organizationMembership.findUnique({
     where: { organizationId_userId: { organizationId: input.organizationId, userId: input.userId } },
     select: { role: true },

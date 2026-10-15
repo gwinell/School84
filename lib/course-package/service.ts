@@ -8,7 +8,7 @@ import { env } from "@/lib/env";
 import { Prisma } from "@/lib/generated/prisma/client";
 import prisma from "@/lib/prisma";
 import { S3Client } from "@/lib/S3Client";
-import { createCoursePackageZip, parseCoursePackageZip, sha256, COURSE_PACKAGE_MAX_FILE_BYTES, type CoursePackageFiles } from "./archive";
+import { assetSignatureMatches, createCoursePackageZip, parseCoursePackageZip, sha256, COURSE_PACKAGE_MAX_FILE_BYTES, type CoursePackageFiles } from "./archive";
 import { coursePackageManifestSchema, courseProgressSchema, type CoursePackageManifest, type CourseProgressFile } from "./schema";
 
 const MIME_EXTENSIONS: Record<string, string> = {
@@ -206,8 +206,10 @@ async function storePackageAssets(pkg: CoursePackageFiles): Promise<{ pathToKey:
   const uploadedKeys: string[] = [];
   try {
     for (const asset of pkg.manifest.assets) {
+      const assetBytes = pkg.assets.get(asset.path);
+      if (!assetBytes || !assetSignatureMatches(assetBytes, asset.contentType)) throw new Error(`Course media does not match its declared content type: ${asset.path}`);
       const key = `courses/imported/${randomUUID()}.${asset.path.split(".").pop()}`;
-      await S3Client.send(new PutObjectCommand({ Bucket: env.NEXT_PUBLIC_S3_BUCKET_NAME_IMAGES, Key: key, ContentType: asset.contentType, ContentLength: asset.size, Body: pkg.assets.get(asset.path) }));
+      await S3Client.send(new PutObjectCommand({ Bucket: env.NEXT_PUBLIC_S3_BUCKET_NAME_IMAGES, Key: key, ContentType: asset.contentType, ContentLength: asset.size, Body: assetBytes }));
       pathToKey.set(asset.path, key); uploadedKeys.push(key);
     }
     return { pathToKey, uploadedKeys };
@@ -224,7 +226,7 @@ function resolvedKey(path: string | null, pathToKey: Map<string, string>): strin
   return key;
 }
 
-function createNestedCourseData(manifest: CoursePackageManifest, pathToKey: Map<string, string>, userId: string, organizationId: string, categories: Array<{ id: string }>, slug: string) {
+function createNestedCourseData(manifest: CoursePackageManifest, pathToKey: Map<string, string>, userId: string, organizationId: string, categories: Array<{ id: string }>, slug: string, status: "DRAFT" | "PUBLISHED" = "DRAFT") {
   return {
     title: manifest.course.title,
     description: manifest.course.description,
@@ -232,7 +234,7 @@ function createNestedCourseData(manifest: CoursePackageManifest, pathToKey: Map<
     duration: manifest.course.duration,
     level: manifest.course.level,
     slug,
-    status: "DRAFT" as const,
+    status,
     priceCents: manifest.course.priceCents,
     fileKey: resolvedKey(manifest.course.cover, pathToKey),
     userId,
@@ -257,12 +259,16 @@ function createNestedCourseData(manifest: CoursePackageManifest, pathToKey: Map<
   };
 }
 
-export async function importCoursePackage(input: { bytes: Uint8Array; organizationId: string; userId: string; includeProgress?: boolean }): Promise<{ courseId: string; title: string; slug: string; progress: { importedLearners: number; skippedUnknownLearners: number; skippedLocations: number } }> {
+export async function importCoursePackage(input: { bytes: Uint8Array; organizationId: string; userId: string; includeProgress?: boolean; personalLearner?: boolean }): Promise<{ courseId: string; title: string; slug: string; progress: { importedLearners: number; skippedUnknownLearners: number; skippedLocations: number } }> {
   const pkg = parseCoursePackageZip(input.bytes);
   const manifest = pkg.manifest;
   const { pathToKey, uploadedKeys } = await storePackageAssets(pkg);
   try {
     const result = await prisma.$transaction(async (tx) => {
+      if (input.personalLearner) {
+        const personalOrganization = await tx.organization.findFirst({ where: { id: input.organizationId, type: "PERSONAL", ownerUserId: input.userId }, select: { id: true } });
+        if (!personalOrganization || input.includeProgress) throw new Error("Personal workspace import is not authorized");
+      }
       const categories = await resolveCategories(manifest.course.categories, tx);
       const existing = await tx.course.findMany({ where: { organizationId: input.organizationId, slug: { startsWith: safeSlug(manifest.course.slug, manifest.course.title) } }, select: { slug: true } });
       const baseSlug = safeSlug(manifest.course.slug, manifest.course.title);
@@ -271,9 +277,12 @@ export async function importCoursePackage(input: { bytes: Uint8Array; organizati
       let suffix = 2;
       while (used.has(slug)) { const ending = `-${suffix++}`; slug = `${baseSlug.slice(0, 50 - ending.length)}${ending}`; }
       const created = await tx.course.create({
-        data: createNestedCourseData(manifest, pathToKey, input.userId, input.organizationId, categories.map(({ id }) => ({ id })), slug),
+        data: createNestedCourseData(manifest, pathToKey, input.userId, input.organizationId, categories.map(({ id }) => ({ id })), slug, input.personalLearner ? "PUBLISHED" : "DRAFT"),
         select: { id: true, title: true, slug: true, courseChapters: { orderBy: { position: "asc" }, select: { position: true, lessons: { orderBy: { position: "asc" }, select: { id: true, position: true, cells: { orderBy: { position: "asc" }, select: { id: true, position: true } } } } } } },
       });
+      if (input.personalLearner) {
+        await tx.enrollment.create({ data: { userId: input.userId, courseId: created.id, amount: 0, status: "Active", accessMode: "ALL_AT_ONCE" } });
+      }
       let importedLearners = 0; let skippedUnknownLearners = 0; let skippedLocations = 0;
       const progress = input.includeProgress ? pkg.progress : undefined;
       if (progress) {

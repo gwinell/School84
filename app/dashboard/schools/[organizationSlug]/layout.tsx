@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { Brand } from "@/components/brand";
 import prisma from "@/lib/prisma";
+import { requireUser } from "@/app/data/user/require-user";
 
 export default async function TenantLearningLayout({
   children,
@@ -10,14 +11,14 @@ export default async function TenantLearningLayout({
   params: Promise<{ organizationSlug: string }>;
 }) {
   const { organizationSlug } = await params;
+  const session = await requireUser();
   const organization = await prisma.organization.findUnique({
     where: { slug: organizationSlug },
-    select: { id: true, name: true, slug: true, logoUrl: true, primaryColor: true },
+    select: { id: true, name: true, slug: true, logoUrl: true, primaryColor: true, type: true, ownerUserId: true },
   });
 
-  // Course and lesson loaders remain responsible for membership/enrollment access.
-  // This layout resolves only public branding from the tenant slug in the route.
-  if (!organization) notFound();
+  // Personal library metadata is private even before the course loader runs.
+  if (!organization || (organization.type === "PERSONAL" && organization.ownerUserId !== session.user.id)) notFound();
 
   return (
     <div className="space-y-4">

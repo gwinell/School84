@@ -3,6 +3,7 @@ import "server-only";
 import prisma from "@/lib/prisma";
 import { canAccessAssignedLesson } from "@/lib/course-access";
 import { requireUser } from "./require-user";
+import { getCourseLearnerAccess } from "./course-learner-access";
 
 export type tUserQuizAnswer = {
   id: string;
@@ -49,21 +50,13 @@ export async function getLessonQuizForUser({
   }
 
   if (session.user.role !== "admin") {
-    const membership = await prisma.organizationMembership.findUnique({
-      where: { organizationId_userId: { organizationId: lesson.chapter.course.organizationId, userId: session.user.id } },
-      select: { role: true },
+    const enrollment = await getCourseLearnerAccess({
+      userId: session.user.id,
+      userRole: session.user.role,
+      courseId: lesson.chapter.courseId,
+      organizationId: lesson.chapter.course.organizationId,
     });
-    const enrollment = await prisma.enrollment.findUnique({
-      where: {
-        userId_courseId: {
-          userId: session.user.id,
-          courseId: lesson.chapter.courseId,
-        },
-      },
-      select: { status: true, accessMode: true },
-    });
-
-    if (membership?.role !== "STUDENT" || !enrollment || enrollment.status !== "Active") {
+    if (!enrollment) {
       return null;
     }
     if (enrollment.accessMode === "SEQUENTIAL" && !(await canAccessAssignedLesson({

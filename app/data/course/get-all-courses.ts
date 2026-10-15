@@ -87,7 +87,7 @@ export async function getCoursesPage({
   const query = q.trim();
   const where: Prisma.CourseWhereInput = {
     status: "PUBLISHED",
-    ...(organizationSlug ? { organization: { slug: organizationSlug } } : {}),
+    organization: { type: "SCHOOL", ...(organizationSlug ? { slug: organizationSlug } : {}) },
     ...(level !== "All"
       ? { level: level.toUpperCase() as tCourseLevel }
       : {}),
