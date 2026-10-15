@@ -60,7 +60,7 @@ docker compose down
 
 For manual Node.js setup, environment configuration, demo curriculum import, backup/restore, and safe application updates, see [Local Development and Operations](docs/LOCAL_DEVELOPMENT.md).
 
-Course authors can import or export `.s84course` bundles from the teacher area. The package manifest, media layout, Python/JavaScript checkers, and optional progress file are documented in the [Course Package Format](docs/COURSE_PACKAGE_FORMAT.md).
+Course authors can import or export `.s84course` bundles from the teacher area. The package manifest, media layout, Python/JavaScript checkers, and optional progress file are documented in the [Course Package Format](docs/COURSE_PACKAGE_FORMAT.md). Learners can also import a prepared package into a personal learning space. Converting a source GitHub repository into a course is an external agent-assisted preparation step; the app imports the resulting package and does not convert repositories itself. See the [agent conversion workflow](docs/COURSE_PACKAGE_AGENT_WORKFLOW.md) and run `pnpm course-package:validate path/to/course.s84course` before importing.
 
 ## Technology
 

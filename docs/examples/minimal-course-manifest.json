@@ -1,0 +1,96 @@
+{
+  "format": "school84.course",
+  "formatVersion": 1,
+  "course": {
+    "title": "Python First Steps",
+    "description": "A tiny reference course for validating a SchoolSphere package.",
+    "smallDesc": "A minimal package fixture.",
+    "priceCents": 0,
+    "duration": 15,
+    "level": "BEGINNER",
+    "slug": "python-first-steps",
+    "categories": ["Python"],
+    "cover": null
+  },
+  "chapters": [
+    {
+      "title": "Start here",
+      "position": 1,
+      "lessons": [
+        {
+          "title": "Print a message",
+          "description": "Write and run a first Python line.",
+          "video": null,
+          "position": 1,
+          "legacyQuiz": null,
+          "cells": [
+            {
+              "type": "TEXT",
+              "position": 1,
+              "title": "Concept",
+              "textContent": "Python's print function writes text to standard output."
+            },
+            {
+              "type": "CODE_TASK",
+              "position": 2,
+              "title": "Your turn",
+              "taskPrompt": "Print the word hello.",
+              "starterCode": "",
+              "examples": [
+                {
+                  "input": "",
+                  "output": "hello\n"
+                }
+              ],
+              "testCases": [
+                {
+                  "input": "",
+                  "output": "hello\n"
+                }
+              ],
+              "lintConfig": {
+                "language": "python",
+                "linters": ["ruff"]
+              }
+            },
+            {
+              "type": "QUIZ",
+              "position": 3,
+              "title": "Check your understanding",
+              "quiz": {
+                "questions": [
+                  {
+                    "text": "Which function displays text in this lesson?",
+                    "type": "SINGLE",
+                    "position": 1,
+                    "answers": [
+                      {
+                        "text": "print",
+                        "isCorrect": true,
+                        "explanation": "print writes output.",
+                        "position": 1
+                      },
+                      {
+                        "text": "input",
+                        "isCorrect": false,
+                        "explanation": null,
+                        "position": 2
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "assets": [],
+  "settings": {
+    "grading": {
+      "standardInputOutput": true,
+      "authorChecks": false
+    }
+  }
+}
