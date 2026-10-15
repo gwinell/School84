@@ -12,6 +12,23 @@ import { errorResponse, successResponse } from "@/lib/responses";
 import { canClaimOrganizationInvitation } from "@/lib/organization/access-policy";
 
 const organizationInput = z.object({ name: z.string().trim().min(2).max(100) });
+const organizationSettingsInput = z.object({
+  organizationId: z.string().min(1),
+  name: z.string().trim().min(2).max(100),
+  slug: z.string().trim().min(2).max(60).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Некорректный адрес школы"),
+  logoUrl: z.preprocess((value) => value === "" ? null : value, z.union([
+    z.null(),
+    z.string().max(2048).url().refine((value) => {
+      try {
+        const url = new URL(value);
+        return url.protocol === "https:" && !url.username && !url.password;
+      } catch {
+        return false;
+      }
+    }, "Логотип должен иметь HTTPS-адрес"),
+  ])),
+  primaryColor: z.preprocess((value) => value === "" ? null : value, z.union([z.null(), z.string().regex(/^#[0-9a-fA-F]{6}$/, "Цвет должен быть в формате #RRGGBB")])),
+});
 const inviteInput = z.object({
   organizationId: z.string().min(1),
   email: z.email().transform((email) => email.trim().toLowerCase()),
@@ -61,6 +78,51 @@ export async function getMyOrganizations() {
       organization: { select: { id: true, name: true, slug: true, logoUrl: true, primaryColor: true } },
     },
   });
+}
+
+/** Update a school's public identity. Tenant roles are checked before any lookup or write. */
+export async function updateOrganizationBranding(input: unknown) {
+  const parsed = organizationSettingsInput.safeParse(input);
+  if (!parsed.success) return errorResponse("Проверьте название, адрес и оформление школы", null);
+
+  const { organizationId, ...data } = parsed.data;
+  await requireOrganizationRole(organizationId, ["OWNER", "ADMIN"]);
+
+  // ADMINs may edit school presentation, but the operation deliberately has no
+  // owner or membership fields and cannot alter the owner's authority.
+  const existing = await prisma.organization.findUnique({
+    where: { id: organizationId },
+    select: { id: true, slug: true },
+  });
+  if (!existing) return errorResponse("Школа не найдена", null);
+
+  const slugConflict = await prisma.organization.findFirst({
+    where: { slug: data.slug, id: { not: organizationId } },
+    select: { id: true },
+  });
+  if (slugConflict) return errorResponse("Этот адрес школы уже занят", null);
+
+  try {
+    const organization = await prisma.organization.update({
+      where: { id: organizationId },
+      data: { name: data.name, slug: data.slug, logoUrl: data.logoUrl, primaryColor: data.primaryColor },
+      select: { id: true, name: true, slug: true, logoUrl: true, primaryColor: true },
+    });
+    revalidatePath("/teacher/schools");
+    revalidatePath("/teacher");
+    revalidatePath(`/schools/${encodeURIComponent(existing.slug)}`);
+    revalidatePath(`/schools/${encodeURIComponent(organization.slug)}`);
+    revalidatePath(`/schools/${encodeURIComponent(existing.slug)}/courses`);
+    revalidatePath(`/schools/${encodeURIComponent(organization.slug)}/courses`);
+    revalidatePath(`/dashboard/schools/${encodeURIComponent(existing.slug)}`);
+    revalidatePath(`/dashboard/schools/${encodeURIComponent(organization.slug)}`);
+    return successResponse("Настройки школы сохранены", organization);
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "P2002") {
+      return errorResponse("Этот адрес школы уже занят", null);
+    }
+    throw error;
+  }
 }
 
 /** Returns a one-time URL for sharing; only organization owners/admins can issue one. */
