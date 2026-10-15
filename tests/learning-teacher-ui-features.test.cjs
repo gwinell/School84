@@ -225,6 +225,24 @@ test('public tenant layout loads and displays branding for the route organizatio
   assert.match(text(tree), /catalog content/);
 });
 
+test('authenticated tenant learning layout uses only the organization resolved from its route slug', async () => {
+  let query;
+  const h = load('app/dashboard/schools/[organizationSlug]/layout.tsx', {
+    'next/navigation': { notFound() { throw new Error('NOT_FOUND'); } },
+    '@/components/brand': { Brand: 'Brand' },
+    '@/lib/prisma': { default: { organization: { findUnique: async (args) => {
+      query = args;
+      return { id: 'school-b', name: 'School B', slug: 'school-b', logoUrl: 'https://school-b.example.test/logo.png', primaryColor: '#285a42' };
+    } } } },
+  });
+  const tree = await h.render('default', { params: Promise.resolve({ organizationSlug: 'school-b' }), children: 'learning content' });
+  assert.equal(query.where.slug, 'school-b');
+  assert.deepEqual(plain(query.select), { id: true, name: true, slug: true, logoUrl: true, primaryColor: true });
+  const brand = find(tree, (node) => node.type === 'Brand');
+  assert.deepEqual(plain(brand.props.brand), { id: 'school-b', name: 'School B', slug: 'school-b', logoUrl: 'https://school-b.example.test/logo.png', primaryColor: '#285a42' });
+  assert.match(text(tree), /learning content/);
+});
+
 test('teacher course cards identify their school and open its tenant-specific course catalogue', async () => {
   const courses = [{ id: 'course-a', title: 'Алгебра', slug: 'algebra', status: 'PUBLISHED', organization: { id: 'school-a', name: 'Лицей 5', slug: 'lyceum-5', logoUrl: '/lyceum.svg', primaryColor: '#123456' } }];
   const h = load('app/teacher/page.tsx', {

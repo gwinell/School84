@@ -11,9 +11,9 @@ import {
   createOrganization,
   createOrganizationInvitation,
   removeOrganizationMember,
+  updateOrganizationBranding,
   updateOrganizationMemberRole,
 } from "@/app/data/organization/actions";
-import * as organizationActions from "@/app/data/organization/actions";
 
 type OrganizationRole = "OWNER" | "ADMIN" | "TEACHER" | "STUDENT";
 type InviteRole = Exclude<OrganizationRole, "OWNER">;
@@ -21,9 +21,6 @@ type Member = { role: OrganizationRole; createdAt: Date; user: { id: string; nam
 type School = { id: string; name: string; slug: string; logoUrl: string | null; primaryColor: string | null; role: OrganizationRole; members: Member[] };
 type SchoolBrand = Pick<School, "name" | "slug" | "logoUrl" | "primaryColor">;
 type InviteShare = { schoolName: string; email: string; role: InviteRole; url: string };
-const updateOrganizationBranding = (organizationActions as unknown as {
-  updateOrganizationBranding(input: { organizationId: string } & SchoolBrand): Promise<{ status: "success" | "error"; message?: string }>;
-}).updateOrganizationBranding;
 
 const ROLE_LABEL: Record<OrganizationRole, string> = {
   OWNER: "Владелец",
