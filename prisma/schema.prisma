@@ -784,6 +784,8 @@ model Certificate {
 
   courseId String?
   course   Course? @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  // Retain public/private status after the optional course relation is deleted.
+  organizationTypeSnapshot OrganizationType?
 
   // Stable copy of the course id at issue time. `courseId` goes NULL when a
   // course is deleted, and Postgres treats NULLs as distinct in unique indexes,

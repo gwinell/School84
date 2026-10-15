@@ -41,7 +41,7 @@ export async function issueCertificateIfEligible({
       return { issued: false, reason: "not-complete" } as const;
     }
 
-    if (course.organization?.type === "PERSONAL") {
+    if (course.organization?.type !== "SCHOOL") {
       return { issued: false, reason: "private-course" } as const;
     }
 
@@ -103,6 +103,7 @@ export async function issueCertificateIfEligible({
           verificationCode,
           userId,
           courseId: course.id,
+          organizationTypeSnapshot: course.organization.type,
           courseIdSnapshot: course.id,
           courseTitleSnapshot: course.title,
           courseSlugSnapshot: course.slug,

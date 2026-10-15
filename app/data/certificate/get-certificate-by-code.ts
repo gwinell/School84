@@ -48,6 +48,7 @@ export async function getCertificateByCode(
       durationSnapshot: true,
       instructorNameSnapshot: true,
       lessonsCountSnapshot: true,
+      organizationTypeSnapshot: true,
       course: {
         select: {
           id: true,
@@ -77,7 +78,8 @@ export async function getCertificateByCode(
 
   if (!certificate) return null;
 
-  if (certificate.course?.organization.type === "PERSONAL") return null;
+  if (certificate.organizationTypeSnapshot !== "SCHOOL") return null;
+  if (certificate.course && certificate.course.organization.type !== "SCHOOL") return null;
 
   if (!certificate.user.showCertificatesPublicly) return null;
 
