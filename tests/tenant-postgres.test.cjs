@@ -60,6 +60,25 @@ test("tenant migration preserves legacy data and isolates schools in PostgreSQL"
       "a user can own only one personal workspace",
     );
 
+    await client.query(`
+      INSERT INTO "Course" ("id", "userId", "slug", "organizationId") VALUES ('personal-course', 'student-a', 'personal-intro', 'personal-library');
+      CREATE TABLE "certificate" ("id" TEXT PRIMARY KEY, "courseId" TEXT NULL);
+      INSERT INTO "certificate" ("id", "courseId") VALUES
+        ('school-certificate', 'legacy-course'),
+        ('personal-certificate', 'personal-course'),
+        ('orphan-null-certificate', NULL),
+        ('orphan-unknown-certificate', 'deleted-course');
+    `);
+    const certificateMigration = fs.readFileSync(path.join(__dirname, "../prisma/migrations/20261015030000_certificate_organization_type/migration.sql"), "utf8");
+    await client.query(certificateMigration);
+    const certificateBackfill = await client.query(`SELECT "id", "organizationTypeSnapshot" FROM "certificate" ORDER BY "id"`);
+    assert.deepEqual(certificateBackfill.rows, [
+      { id: "orphan-null-certificate", organizationTypeSnapshot: null },
+      { id: "orphan-unknown-certificate", organizationTypeSnapshot: null },
+      { id: "personal-certificate", organizationTypeSnapshot: "PERSONAL" },
+      { id: "school-certificate", organizationTypeSnapshot: "SCHOOL" },
+    ], "linked certificates retain their source organization while orphaned certificates stay private/unknown");
+
     const backfill = await client.query(`
       SELECT o."slug" AS org_slug, c."slug" AS course_slug,
         owner."role" AS owner_role, teacher."role" AS teacher_role, student."role" AS student_role
