@@ -121,7 +121,7 @@ test("school settings accept only a validated HTTPS logo and hex color, and reva
     "next/cache": { revalidatePath: (route) => paths.push(route) },
   });
   const input = { organizationId: "school-a", name: "New School", slug: "new-school", logoUrl: "https://assets.example.test/logo.svg", primaryColor: "#124a73" };
-  const result = await actions.updateOrganizationSettings(input);
+  const result = await actions.updateOrganizationBranding(input);
   assert.equal(result.status, "success");
   assert.deepEqual(updates[0].data, { name: input.name, slug: input.slug, logoUrl: input.logoUrl, primaryColor: input.primaryColor });
   assert.equal(Object.hasOwn(updates[0].data, "memberships"), false);
@@ -135,7 +135,7 @@ test("school settings accept only a validated HTTPS logo and hex color, and reva
     { ...input, primaryColor: "red" },
     { ...input, slug: "Bad Slug" },
   ]) {
-    const rejected = await actions.updateOrganizationSettings(invalid);
+    const rejected = await actions.updateOrganizationBranding(invalid);
     assert.equal(rejected.status, "error");
   }
   assert.equal(updates.length, 1, "invalid input must not write");
@@ -151,7 +151,7 @@ test("school settings reject a slug already used by another organization", async
     } },
     "@/app/data/user/require-user": { requireUser: async () => ({ user: { id: "owner", role: "user" } }) },
   });
-  const result = await actions.updateOrganizationSettings({ organizationId: "school-a", name: "New School", slug: "taken-school", logoUrl: "", primaryColor: "" });
+  const result = await actions.updateOrganizationBranding({ organizationId: "school-a", name: "New School", slug: "taken-school", logoUrl: "", primaryColor: "" });
   assert.equal(result.status, "error");
   assert.equal(writes, 0);
 });
@@ -165,7 +165,7 @@ test("school settings translate a concurrent database slug collision into a form
     } },
     "@/app/data/user/require-user": { requireUser: async () => ({ user: { id: "owner", role: "user" } }) },
   });
-  const result = await actions.updateOrganizationSettings({ organizationId: "school-a", name: "New School", slug: "taken-school", logoUrl: null, primaryColor: null });
+  const result = await actions.updateOrganizationBranding({ organizationId: "school-a", name: "New School", slug: "taken-school", logoUrl: null, primaryColor: null });
   assert.equal(result.status, "error");
   assert.match(result.message, /уже занят/);
 });
@@ -177,6 +177,6 @@ test("school settings enforce the existing owner/admin authorization boundary", 
     "@/app/data/user/require-user": { requireUser: async () => ({ user: { id: "member", role: "user" } }) },
     "./authorization": { requireOrganizationRole: async (_id, roles) => { assert.deepEqual(roles, ["OWNER", "ADMIN"]); throw new Error("REDIRECT"); } },
   });
-  await assert.rejects(actions.updateOrganizationSettings({ organizationId: "school-a", name: "New School", slug: "new-school", logoUrl: "", primaryColor: "" }), /REDIRECT/);
+  await assert.rejects(actions.updateOrganizationBranding({ organizationId: "school-a", name: "New School", slug: "new-school", logoUrl: "", primaryColor: "" }), /REDIRECT/);
   assert.equal(databaseReads, 0, "unauthorized callers must not inspect or modify school settings");
 });

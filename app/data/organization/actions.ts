@@ -81,7 +81,7 @@ export async function getMyOrganizations() {
 }
 
 /** Update a school's public identity. Tenant roles are checked before any lookup or write. */
-export async function updateOrganizationSettings(input: unknown) {
+export async function updateOrganizationBranding(input: unknown) {
   const parsed = organizationSettingsInput.safeParse(input);
   if (!parsed.success) return errorResponse("Проверьте название, адрес и оформление школы", null);
 
