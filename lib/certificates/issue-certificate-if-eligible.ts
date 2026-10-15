@@ -7,7 +7,7 @@ import prisma from "@/lib/prisma";
 import { generateVerificationCode } from "./generate-verification-code";
 
 export type IssueCertificateResult =
-  | { issued: false; reason: "already-exists" | "not-complete" | "no-lessons" }
+  | { issued: false; reason: "already-exists" | "not-complete" | "no-lessons" | "private-course" }
   | { issued: true; verificationCode: string };
 
 export async function issueCertificateIfEligible({
@@ -18,15 +18,6 @@ export async function issueCertificateIfEligible({
   courseId: string;
 }): Promise<IssueCertificateResult> {
   return prisma.$transaction(async (tx) => {
-    const existing = await tx.certificate.findUnique({
-      where: { userId_courseId: { userId, courseId } },
-      select: { verificationCode: true },
-    });
-
-    if (existing) {
-      return { issued: false, reason: "already-exists" } as const;
-    }
-
     const course = await tx.course.findUnique({
       where: { id: courseId },
       select: {
@@ -36,6 +27,7 @@ export async function issueCertificateIfEligible({
         level: true,
         duration: true,
         status: true,
+        organization: { select: { type: true } },
         user: { select: { name: true } },
         courseChapters: {
           select: {
@@ -47,6 +39,19 @@ export async function issueCertificateIfEligible({
 
     if (!course || course.status !== "PUBLISHED") {
       return { issued: false, reason: "not-complete" } as const;
+    }
+
+    if (course.organization?.type === "PERSONAL") {
+      return { issued: false, reason: "private-course" } as const;
+    }
+
+    const existing = await tx.certificate.findUnique({
+      where: { userId_courseId: { userId, courseId } },
+      select: { verificationCode: true },
+    });
+
+    if (existing) {
+      return { issued: false, reason: "already-exists" } as const;
     }
 
     const lessonIds = course.courseChapters.flatMap((chapter) =>
