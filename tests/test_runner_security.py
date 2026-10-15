@@ -124,6 +124,80 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(result['passedTests'], 0)
         self.assertTrue(container.removed)
 
+    def test_execute_run_passes_language_and_checker_and_requires_io_match(self):
+        request = types.SimpleNamespace(
+            language='javascript', code='process.stdout.write("yes")',
+            tests=[types.SimpleNamespace(input='', output='yes')], lint=False,
+            checkerCode='function check({actualOutput}) { return actualOutput === "yes"; }',
+        )
+        checked = {
+            'status': 'OK', 'stdout': 'yes', 'stderr': '', 'checkerPassed': True,
+            'durationMs': 5,
+        }
+        with patch.object(runner, 'client', types.SimpleNamespace(images=types.SimpleNamespace(get=lambda image: None))), patch.object(runner, 'run_one', return_value=checked) as run_one:
+            result = runner.execute_run(request)
+        run_one.assert_called_once_with(request.code, '', 'yes', 'javascript', request.checkerCode)
+        self.assertEqual(result['status'], 'ACCEPTED')
+
+        request.tests[0].output = 'different'
+        with patch.object(runner, 'client', types.SimpleNamespace(images=types.SimpleNamespace(get=lambda image: None))), patch.object(runner, 'run_one', return_value=checked):
+            result = runner.execute_run(request)
+        self.assertEqual(result['status'], 'WRONG_ANSWER')
+
+    def test_checker_rejection_fails_even_when_output_matches(self):
+        request = types.SimpleNamespace(
+            language='python', code='print("same")',
+            tests=[types.SimpleNamespace(input='', output='same')], lint=False,
+            checkerCode='def check(input_text, expected_output, actual_output, source_code): return "author check failed"',
+        )
+        with patch.object(runner, 'client', types.SimpleNamespace(images=types.SimpleNamespace(get=lambda image: None))), patch.object(
+            runner, 'run_one', return_value={
+                'status': 'OK', 'stdout': 'same', 'stderr': 'author check failed',
+                'checkerPassed': False, 'durationMs': 7,
+            }
+        ):
+            result = runner.execute_run(request)
+        self.assertEqual(result['status'], 'WRONG_ANSWER')
+        self.assertEqual(result['checks'][0]['errorText'], 'author check failed')
+
+    def test_checker_runs_in_a_separate_sandbox_and_both_are_removed(self):
+        solution_container = FakeContainer()
+        checker_container = FakeContainer()
+        sandbox_calls = []
+
+        def make_sandbox(code, test_input='', extra_environment=None):
+            sandbox_calls.append((code, test_input, extra_environment or {}))
+            return solution_container if len(sandbox_calls) == 1 else checker_container
+
+        executions = [
+            {'timedOut': False, 'exitCode': 0, 'outputExceeded': False, 'stdout': 'answer\n', 'stderr': '', 'durationMs': 12},
+            {'timedOut': False, 'exitCode': 0, 'outputExceeded': False, 'stdout': 'S84_CHECKER:{"passed":true,"message":""}', 'stderr': '', 'durationMs': 8},
+        ]
+        with patch.object(runner, 'create_sandbox', side_effect=make_sandbox) as create, patch.object(
+            runner, 'run_exec', side_effect=executions,
+        ) as run_exec:
+            result = runner.run_one('print("answer")', 'input', 'answer\n', 'python', 'def check(i,e,a,s): return a == e')
+
+        self.assertEqual(result['status'], 'OK')
+        self.assertTrue(result['checkerPassed'])
+        self.assertEqual(len(sandbox_calls), 2)
+        self.assertNotIn('S84_CHECKER_CODE', sandbox_calls[0][2])
+        self.assertEqual(sandbox_calls[1][2]['S84_CHECKER_CODE'], 'def check(i,e,a,s): return a == e')
+        self.assertTrue(solution_container.removed)
+        self.assertTrue(checker_container.removed)
+        self.assertEqual([call.args[2] for call in run_exec.call_args_list], [1.8, 0.7])
+
+    def test_python_request_without_language_remains_compatible(self):
+        request = types.SimpleNamespace(
+            code='print("ok")', tests=[types.SimpleNamespace(input='', output='ok')], lint=False,
+        )
+        with patch.object(runner, 'client', types.SimpleNamespace(images=types.SimpleNamespace(get=lambda image: None))), patch.object(runner, 'run_one', return_value={
+            'status': 'OK', 'stdout': 'ok', 'stderr': '', 'durationMs': 1,
+        }) as run_one:
+            result = runner.execute_run(request)
+        run_one.assert_called_once_with(request.code, '', 'ok', 'python', None)
+        self.assertEqual(result['status'], 'ACCEPTED')
+
     def test_global_cap_rejects_third_request_and_releases_slots(self):
         entered = 0
         lock = threading.Lock()

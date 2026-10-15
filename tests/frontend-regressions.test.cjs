@@ -251,6 +251,31 @@ test("chapter save updates its baseline so the Save button becomes disabled", as
   assert.equal(button(h.render("ChapterEditor", props), "Сохранить").props.disabled, true);
 });
 
+test("failed course chapter reorder restores the saved order", async () => {
+  const h = load("app/admin/courses/[courseId]/edit/_components/EditCourseStructureForm.tsx", {
+    "next/link": { default: "Link" },
+    "@dnd-kit/react": { DragDropProvider: "DragDropProvider" },
+    "@dnd-kit/react/sortable": { isSortable: () => true, useSortable: () => ({ ref: null, handleRef: null, isDragging: false }) },
+    "@/components/ui/button": { Button: "Button" },
+    "@/components/ui/card": { Card: "Card" },
+    "lucide-react": { BookOpenIcon: "BookOpenIcon", GripVerticalIcon: "GripVerticalIcon" },
+    "../actions": { reorderChapters: async () => ({ status: "error", message: "Failed" }) },
+  });
+  const chapters = [
+    { id: "chapter-a", title: "A", position: 1, lessons: [] },
+    { id: "chapter-b", title: "B", position: 2, lessons: [] },
+  ];
+  const course = { id: "course-a", courseChapters: chapters };
+  const tree = h.render("EditCourseStructureForm", { course });
+  find(tree, (node) => node.type === "DragDropProvider").props.onDragEnd({
+    canceled: false,
+    operation: { source: { initialIndex: 0, index: 1 } },
+  });
+  assert.equal(h.state[0][0].id, "chapter-b");
+  await h.flush();
+  assert.equal(h.state[0][0].id, "chapter-a");
+});
+
 test("quiz cell title can be saved independently of quiz questions", async () => {
   const saved = [];
   const h = load(`${admin}/lessons/[lessonId]/_components/LessonCellEditor.tsx`, {
@@ -281,6 +306,141 @@ test("switching quiz editor cells uses independent question form instances", () 
   find(tree, (n) => n.props["aria-label"] === "Ячейка 2: Quiz").props.onClick();
   const second = find(h.render("LessonCellEditor", props), (n) => n.type === "QuizEditor");
   assert.notEqual(first.key, second.key);
+});
+
+test("legacy Python lint settings render as Python with Ruff enabled", () => {
+  const h = load(`${admin}/lessons/[lessonId]/_components/LessonCellEditor.tsx`);
+  const cell = { id: "code-a", type: "CODE_TASK", title: "Legacy", lintConfig: { python: ["ruff"] } };
+  const props = { courseId: "course", chapterId: "chapter", selectedCell: cell, lesson: {
+    id: "lesson", cells: [cell], chapter: { course: { courseChapters: [] } },
+  } };
+  const tree = nodes(h.render("LessonCellEditor", props), true);
+  assert.equal(find(tree, (n) => n.props["aria-label"] === "Язык решения").props.value, "python");
+  assert.equal(find(tree, (n) => n.props["aria-label"] === "Ruff").props.checked, true);
+  assert.equal(find(tree, (n) => n.props["aria-label"] === "Код дополнительной автопроверки").props.value, "");
+  assert.match(text(tree), /def check\(input_text, expected_output, actual_output, source_code\):/);
+  assert.match(text(tree), /true\/false или пустую\/непустую строку/);
+});
+
+test("code task editor serializes language, selected linters, and checker code", async () => {
+  const saved = [];
+  const h = load(`${admin}/lessons/[lessonId]/_components/LessonCellEditor.tsx`, {
+    "@/app/admin/courses/[courseId]/[chapterId]/[lessonId]/cell-actions": {
+      updateLessonCell: async (value) => { saved.push(value); return { status: "success" }; },
+    },
+  });
+  const cell = { id: "code-a", type: "CODE_TASK", title: "Task", lintConfig: { language: "python", linters: ["ruff"] } };
+  const props = { courseId: "course", chapterId: "chapter", selectedCell: cell, lesson: {
+    id: "lesson", cells: [cell], chapter: { course: { courseChapters: [] } },
+  } };
+  let tree = nodes(h.render("LessonCellEditor", props), true);
+  find(tree, (n) => n.props["aria-label"] === "Язык решения").props.onChange({ target: { value: "javascript" } });
+  tree = nodes(h.render("LessonCellEditor", props), true);
+  assert.equal(find(tree, (n) => n.props["aria-label"] === "ESLint").props.checked, true);
+  assert.match(text(tree), /function check\(\{input, expectedOutput, actualOutput, sourceCode\}\)/);
+  assert.match(text(tree), /true\/false или пустую\/непустую строку/);
+  find(tree, (n) => n.props["aria-label"] === "Код дополнительной автопроверки").props.onChange({ target: { value: "return actual === expected;" } });
+  tree = nodes(h.render("LessonCellEditor", props), true);
+  button(tree, "Сохранить ячейку").props.onClick();
+  await h.flush();
+  assert.deepEqual(plain(saved[0]?.values.lintConfig), {
+    language: "javascript", linters: ["eslint"], checkerCode: "return actual === expected;",
+  });
+});
+
+test("course package import sends GitHub URL, target organization, and optional progress", async () => {
+  const requests = [];
+  class MockFormData {
+    values = {};
+    set(key, value) { this.values[key] = value; }
+  }
+  const h = load("app/teacher/_components/CoursePackageTools.tsx", {
+    "@/components/ui/button": { Button: "Button" },
+    "@/components/ui/input": { Input: "Input" },
+  }, {
+    FormData: MockFormData,
+    fetch: async (url, options) => {
+      requests.push({ url, options });
+      return { ok: true, json: async () => ({ course: { id: "imported", title: "Imported course", slug: "imported-course" }, warnings: [] }) };
+    },
+  });
+  const props = { organizations: [{ id: "org-a", name: "School A" }, { id: "org-b", name: "School B" }] };
+  let tree = nodes(h.render("CoursePackageImportForm", props), true);
+  find(tree, (n) => n.type === "input" && n.props.type === "radio" && n.props.value === "github").props.onChange();
+  tree = nodes(h.render("CoursePackageImportForm", props), true);
+  find(tree, (n) => n.props["aria-label"] === "GitHub URL курса").props.onChange({ target: { value: "https://github.com/example/course" } });
+  find(tree, (n) => n.type === "input" && n.props.type === "checkbox").props.onChange({ target: { checked: true } });
+  tree = nodes(h.render("CoursePackageImportForm", props), true);
+  find(tree, (n) => n.props["aria-label"] === "Организация для импорта").props.onChange({ target: { value: "org-b" } });
+  tree = nodes(h.render("CoursePackageImportForm", props), true);
+  await find(tree, (n) => n.type === "form").props.onSubmit({ preventDefault() {} });
+  assert.equal(requests[0].url, "/api/teacher/course-packages/import");
+  assert.equal(requests[0].options.method, "POST");
+  assert.deepEqual(requests[0].options.body.values, {
+    organizationId: "org-b", includeProgress: "true", githubUrl: "https://github.com/example/course",
+  });
+  assert.match(text(nodes(h.render("CoursePackageImportForm", props), true)), /Курс «Imported course» импортирован/);
+});
+
+test("course package import displays server errors", async () => {
+  const h = load("app/teacher/_components/CoursePackageTools.tsx", {
+    "@/components/ui/button": { Button: "Button" },
+    "@/components/ui/input": { Input: "Input" },
+  }, {
+    FormData: class { set() {} },
+    fetch: async () => ({ ok: false, json: async () => ({ error: "Нет прав импортировать курс" }) }),
+  });
+  const props = { organizations: [{ id: "org-a", name: "School A" }] };
+  let tree = nodes(h.render("CoursePackageImportForm", props), true);
+  find(tree, (n) => n.type === "Input" && n.props.type === "file").props.onChange({ target: { files: [{ name: "course.s84course" }] } });
+  tree = nodes(h.render("CoursePackageImportForm", props), true);
+  await find(tree, (n) => n.type === "form").props.onSubmit({ preventDefault() {} });
+  tree = nodes(h.render("CoursePackageImportForm", props), true);
+  assert.match(text(find(tree, (n) => n.props.role === "alert")), /Нет прав импортировать курс/);
+});
+
+test("course package export requests the progress option and downloads the response", async () => {
+  const requests = [];
+  const downloaded = [];
+  const anchor = { click() { downloaded.push({ href: this.href, download: this.download }); }, remove() {} };
+  const h = load("app/teacher/_components/CoursePackageTools.tsx", {
+    "@/components/ui/button": { Button: "Button" },
+    "@/components/ui/input": { Input: "Input" },
+  }, {
+    fetch: async (url) => {
+      requests.push(url);
+      return { ok: true, headers: { get: () => 'attachment; filename="course.s84course"' }, blob: async () => ({ type: "application/zip" }) };
+    },
+    URL: { createObjectURL: () => "blob:package", revokeObjectURL() {} },
+    document: { createElement: () => anchor, body: { appendChild() {} } },
+  });
+  let tree = nodes(h.render("CoursePackageExportControls", { courseId: "course-a" }), true);
+  find(tree, (n) => n.type === "input" && n.props.type === "checkbox").props.onChange({ target: { checked: true } });
+  tree = nodes(h.render("CoursePackageExportControls", { courseId: "course-a" }), true);
+  await button(tree, "Скачать пакет курса").props.onClick();
+  assert.deepEqual(plain(requests), ["/api/teacher/courses/course-a/package?includeProgress=true"]);
+  assert.deepEqual(plain(downloaded), [{ href: "blob:package", download: "course.s84course" }]);
+});
+
+test("course package export displays server errors", async () => {
+  const h = load("app/teacher/_components/CoursePackageTools.tsx", {
+    "@/components/ui/button": { Button: "Button" },
+    "@/components/ui/input": { Input: "Input" },
+  }, {
+    fetch: async () => ({ ok: false, json: async () => ({ error: "Не удалось экспортировать курс" }) }),
+  });
+  const props = { courseId: "course-a" };
+  const tree = nodes(h.render("CoursePackageExportControls", props), true);
+  await button(tree, "Скачать пакет курса").props.onClick();
+  assert.match(text(find(nodes(h.render("CoursePackageExportControls", props), true), (n) => n.props.role === "alert")), /Не удалось экспортировать курс/);
+});
+
+test("teacher pages expose package import and course export controls", () => {
+  const home = fs.readFileSync(path.join(__dirname, "../app/teacher/page.tsx"), "utf8");
+  const edit = fs.readFileSync(path.join(__dirname, "../app/teacher/courses/[courseId]/edit/page.tsx"), "utf8");
+  assert.match(home, /getMyOrganizations\(\)/);
+  assert.match(home, /<CoursePackageImportForm/);
+  assert.match(edit, /<CoursePackageExportControls/);
 });
 
 test("learner cell navigation remounts state belonging to a different cell", async () => {

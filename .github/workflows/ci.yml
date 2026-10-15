@@ -76,6 +76,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Validate local Docker Compose configuration
+        run: docker compose config --quiet
+
+      - name: Build isolated Python and JavaScript runner images
+        run: docker compose --profile build-image build python-runner python-sandbox-image
+
       - name: Validate Prisma schema
         run: pnpm exec prisma validate
 

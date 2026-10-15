@@ -1,4 +1,5 @@
 import hmac
+import json
 import os
 import time
 import threading
@@ -24,9 +25,11 @@ class TestCase(BaseModel):
 
 
 class RunRequest(BaseModel):
+    language: Literal["python", "javascript"] = "python"
     code: str = Field(min_length=1, max_length=30_000)
     tests: list[TestCase] = Field(min_length=1, max_length=12)
     lint: bool = True
+    checkerCode: str | None = Field(default=None, max_length=30_000)
 
 
 def run_exec(container, command: list[str], timeout: float) -> dict:
@@ -99,7 +102,7 @@ def run_exec(container, command: list[str], timeout: float) -> dict:
     }
 
 
-def create_sandbox(code: str, test_input: str = ""):
+def create_sandbox(code: str, test_input: str = "", extra_environment: dict[str, str] | None = None):
     container = client.containers.create(
         IMAGE,
         command=["sleep", "60"],
@@ -112,24 +115,32 @@ def create_sandbox(code: str, test_input: str = ""):
         cap_drop=["ALL"],
         security_opt=["no-new-privileges:true"],
         tmpfs={"/tmp": "rw,noexec,nosuid,size=8m"},
-        environment={"S84_TASK_CODE": code, "S84_TASK_INPUT": test_input},
+        environment={"S84_TASK_CODE": code, "S84_TASK_INPUT": test_input, **(extra_environment or {})},
     )
     container.start()
     return container
 
 
-def run_lint(code: str) -> dict:
+def run_lint(code: str, language: str, linters: list[str] | None = None) -> dict:
     container = None
     try:
         container = create_sandbox(code)
-        bootstrap = (
-            "import os,subprocess,sys\n"
-            "source=os.environ.pop('S84_TASK_CODE')\n"
-            "os.environ.clear()\n"
-            "result=subprocess.run(['/usr/local/bin/ruff','check','--output-format','concise','--stdin-filename','solution.py','-'],input=source,text=True,capture_output=True,timeout=1.5)\n"
-            "sys.stdout.write(result.stdout);sys.stderr.write(result.stderr);sys.exit(result.returncode)"
-        )
-        return run_exec(container, ["python", "-I", "-c", bootstrap], LINT_TIMEOUT_SECONDS)
+        if language == "python":
+            command = ["/usr/local/bin/ruff", "check", "--output-format", "concise", "--stdin-filename", "solution.py", "-"]
+            source = "import os,subprocess,sys\nsource=os.environ.pop('S84_TASK_CODE')\nos.environ.clear()\nresult=subprocess.run(" + repr(command) + ",input=source,text=True,capture_output=True,timeout=1.5)\nsys.stdout.write(result.stdout);sys.stderr.write(result.stderr);sys.exit(result.returncode)"
+            exec_command = ["python", "-I", "-c", source]
+        else:
+            # Use only a fixed CLI ruleset; do not load task-provided ESLint config/plugins.
+            command = [
+                "/usr/local/bin/eslint", "--no-config-lookup", "--stdin",
+                "--stdin-filename", "solution.js", "--global", "console",
+                "--global", "process", "--global", "require", "--global", "module",
+                "--global", "Buffer", "--rule", "no-undef:error",
+                "--rule", "no-unreachable:error",
+            ]
+            source = "import os,subprocess,sys\nsource=os.environ.pop('S84_TASK_CODE')\nos.environ.clear()\nresult=subprocess.run(" + repr(command) + ",input=source,text=True,capture_output=True,timeout=1.5)\nsys.stdout.write(result.stdout);sys.stderr.write(result.stderr);sys.exit(result.returncode)"
+            exec_command = ["python", "-I", "-c", source]
+        return run_exec(container, exec_command, LINT_TIMEOUT_SECONDS)
     finally:
         if container is not None:
             try:
@@ -138,20 +149,40 @@ def run_lint(code: str) -> dict:
                 pass
 
 
-def run_one(code: str, test_input: str) -> dict:
-    container = None
+def run_one(code: str, test_input: str, expected_output: str, language: str = "python", checker_code: str | None = None) -> dict:
     started = time.monotonic()
+    container = None
     try:
-        container = create_sandbox(code, test_input)
-        bootstrap = (
-            "import io,os,sys\n"
-            "source=os.environ.pop('S84_TASK_CODE')\n"
-            "task_input=os.environ.pop('S84_TASK_INPUT')\n"
-            "os.environ.clear()\n"
-            "sys.stdin=io.TextIOWrapper(io.BytesIO(task_input.encode()),encoding='utf-8')\n"
-            "exec(compile(source,'<solution>','exec'),{'__name__':'__main__'})"
-        )
-        execution = run_exec(container, ["python", "-I", "-c", bootstrap], TEST_TIMEOUT_SECONDS)
+        container = create_sandbox(code, test_input, {"S84_LANGUAGE": language})
+        # Capture the learner's output in a bounded tmpfs file. The checker runs
+        # later in a different container, so learner processes cannot reach it.
+        bootstrap = r'''import os,subprocess,sys,tempfile
+source=os.environ.pop('S84_TASK_CODE')
+task_input=os.environ.pop('S84_TASK_INPUT')
+language=os.environ.pop('S84_LANGUAGE')
+os.environ.clear()
+if language == 'python':
+    child=[sys.executable,'-I','-c',"import os,sys; src=os.environ.pop('S84_CHILD_CODE'); os.environ.clear(); exec(compile(src,'<solution>','exec'),{'__name__':'__main__'})"]
+    child_env={'S84_CHILD_CODE':source}
+else:
+    child=['node','-e',source]
+    child_env={}
+with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+    try:
+        run=subprocess.run(child,input=task_input.encode(),stdout=out,stderr=err,timeout=1.8,env=child_env)
+    except subprocess.TimeoutExpired:
+        print('S84_TIMEOUT',file=sys.stderr); sys.exit(124)
+    out.seek(0); actual_bytes=out.read(16001)
+    err.seek(0); task_error=err.read(16000).decode('utf-8','replace')
+    if len(actual_bytes)>16000:
+        print('S84_OUTPUT_EXCEEDED',file=sys.stderr); sys.exit(125)
+    actual=actual_bytes.decode('utf-8','replace')
+    if run.returncode:
+        sys.stderr.write(task_error); sys.exit(run.returncode)
+    sys.stderr.write(task_error)
+sys.stdout.write(actual)
+'''
+        execution = run_exec(container, ["python", "-I", "-c", bootstrap], 1.8)
         if execution.get("outputExceeded"):
             return {"status": "RUNTIME_ERROR", "stdout": "", "stderr": "Превышен допустимый объём вывода.", "durationMs": int((time.monotonic() - started) * 1000)}
         if execution["timedOut"]:
@@ -159,16 +190,70 @@ def run_one(code: str, test_input: str) -> dict:
         exit_code = execution["exitCode"]
         stdout = execution["stdout"]
         stderr = execution["stderr"]
-        return {
-            "status": "OK" if exit_code == 0 else "RUNTIME_ERROR",
-            "stdout": stdout,
-            "stderr": stderr[-MAX_OUTPUT_BYTES:],
-            "durationMs": int((time.monotonic() - started) * 1000),
-        }
+        status = "OK" if exit_code == 0 else "TIME_LIMIT" if exit_code == 124 else "RUNTIME_ERROR"
     finally:
         if container is not None:
             try:
                 container.remove(force=True)
+            except docker.errors.NotFound:
+                pass
+
+    if status != "OK" or not checker_code:
+        return {"status": status, "stdout": stdout, "stderr": stderr[-MAX_OUTPUT_BYTES:], "checkerPassed": True, "checkerMessage": "", "durationMs": int((time.monotonic() - started) * 1000)}
+
+    checker_container = None
+    checker_environment = {
+        "S84_CHECKER_CODE": checker_code,
+        "S84_CHECKER_INPUT": test_input,
+        "S84_CHECKER_EXPECTED": expected_output,
+        "S84_CHECKER_ACTUAL": stdout,
+        "S84_CHECKER_SOURCE": code,
+        "S84_LANGUAGE": language,
+    }
+    try:
+        checker_container = create_sandbox("", "", checker_environment)
+        if language == "python":
+            check_bootstrap = r'''import json,os
+checker=os.environ.pop('S84_CHECKER_CODE')
+values={key:os.environ.pop(name) for key,name in [('input','S84_CHECKER_INPUT'),('expected','S84_CHECKER_EXPECTED'),('actual','S84_CHECKER_ACTUAL'),('source','S84_CHECKER_SOURCE')]}
+os.environ.clear()
+namespace={}
+exec(compile(checker,'<checker>','exec'),namespace)
+fn=namespace.get('check')
+if not callable(fn): raise RuntimeError('Checker must define check(...)')
+result=fn(values['input'],values['expected'],values['actual'],values['source'])
+passed=result if isinstance(result,bool) else not result if isinstance(result,str) else False
+message=result[:2000] if isinstance(result,str) else ''
+print('S84_CHECKER:'+json.dumps({'passed':passed,'message':message},ensure_ascii=False))
+'''
+            checker_command = ["python", "-I", "-c", check_bootstrap]
+        else:
+            check_bootstrap = r'''const checker=process.env.S84_CHECKER_CODE;
+const args={input:process.env.S84_CHECKER_INPUT,expectedOutput:process.env.S84_CHECKER_EXPECTED,actualOutput:process.env.S84_CHECKER_ACTUAL,sourceCode:process.env.S84_CHECKER_SOURCE};
+delete process.env.S84_CHECKER_CODE; delete process.env.S84_CHECKER_INPUT; delete process.env.S84_CHECKER_EXPECTED; delete process.env.S84_CHECKER_ACTUAL; delete process.env.S84_CHECKER_SOURCE; delete process.env.S84_LANGUAGE;
+const check=new Function(checker+'; return typeof check === "function" ? check : undefined;')();
+if(!check) throw new Error('Checker must define check(...)');
+const result=check(args); const passed=typeof result==='boolean'?result:(typeof result==='string'?!result:false);
+process.stdout.write('S84_CHECKER:'+JSON.stringify({passed,message:typeof result==='string'?result.slice(0,2000):''}));
+'''
+            checker_command = ["node", "-e", check_bootstrap]
+        checked = run_exec(checker_container, checker_command, 0.7)
+        if checked.get("timedOut") or checked.get("outputExceeded") or checked["exitCode"] != 0:
+            return {"status": "RUNTIME_ERROR", "stdout": stdout, "stderr": checked["stderr"][-MAX_OUTPUT_BYTES:] or "Не удалось выполнить дополнительную проверку.", "checkerPassed": False, "checkerMessage": "", "durationMs": int((time.monotonic() - started) * 1000)}
+        try:
+            raw = checked["stdout"]
+            if not raw.startswith("S84_CHECKER:"):
+                raise ValueError("Missing checker result")
+            checker_result = json.loads(raw[len("S84_CHECKER:"):])
+            checker_passed = checker_result.get("passed") is True
+            checker_message = checker_result.get("message", "")
+        except (json.JSONDecodeError, AttributeError, ValueError):
+            return {"status": "RUNTIME_ERROR", "stdout": stdout, "stderr": "Проверяющая программа вернула некорректный результат.", "checkerPassed": False, "checkerMessage": "", "durationMs": int((time.monotonic() - started) * 1000)}
+        return {"status": "OK", "stdout": stdout, "stderr": checker_message[-MAX_OUTPUT_BYTES:] or stderr[-MAX_OUTPUT_BYTES:], "checkerPassed": checker_passed, "checkerMessage": checker_message, "durationMs": int((time.monotonic() - started) * 1000)}
+    finally:
+        if checker_container is not None:
+            try:
+                checker_container.remove(force=True)
             except docker.errors.NotFound:
                 pass
 
@@ -186,8 +271,10 @@ def execute_run(request: RunRequest):
 
     lint_duration = 0
     lint_output = ""
+    language = getattr(request, "language", "python")
+    checker_code = getattr(request, "checkerCode", None)
     if request.lint:
-        lint = run_lint(request.code)
+        lint = run_lint(request.code, language)
         lint_duration = lint["durationMs"]
         lint_output = (lint["stdout"] + lint["stderr"])[-MAX_OUTPUT_BYTES:] if lint["exitCode"] != 0 else ""
         if lint["timedOut"] or lint["exitCode"] != 0:
@@ -205,11 +292,11 @@ def execute_run(request: RunRequest):
     checks = []
     total_duration = lint_duration
     for index, test in enumerate(request.tests):
-        check = run_one(request.code, test.input)
+        check = run_one(request.code, test.input, test.output, language, checker_code)
         total_duration += check["durationMs"]
         normalized_actual = check["stdout"].replace("\r\n", "\n").rstrip()
         normalized_expected = test.output.replace("\r\n", "\n").rstrip()
-        passed = check["status"] == "OK" and normalized_actual == normalized_expected
+        passed = check["status"] == "OK" and normalized_actual == normalized_expected and check.get("checkerPassed", True)
         checks.append({
             "status": "PASSED" if passed else check["status"] if check["status"] != "OK" else "WRONG_ANSWER",
             "actualOutput": check["stdout"][:MAX_OUTPUT_BYTES],

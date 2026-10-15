@@ -73,6 +73,20 @@ export async function createCourse(values: CourseSchemaType, requestedOrganizati
       );
     }
 
+    if (courseFields.fileKey) {
+      const pendingUpload = await prisma.pendingUpload.findFirst({
+        where: {
+          key: courseFields.fileKey,
+          userId: session.user.id,
+          courseId: null,
+        },
+        select: { key: true },
+      });
+      if (!pendingUpload) {
+        return errorResponse("Course image upload is not available", null);
+      }
+    }
+
     const slugTaken = await prisma.course.findFirst({
       where: { organizationId: organization.organizationId, slug: courseFields.slug },
       select: { id: true },
@@ -103,7 +117,13 @@ export async function createCourse(values: CourseSchemaType, requestedOrganizati
 
         if (courseFields.fileKey) {
           await tx.pendingUpload
-            .delete({ where: { key: courseFields.fileKey } })
+            .deleteMany({
+              where: {
+                key: courseFields.fileKey,
+                userId: session.user.id,
+                courseId: null,
+              },
+            })
             .catch(() => {});
         }
 

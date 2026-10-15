@@ -48,3 +48,24 @@ test('fresh-install demo seed creates school memberships before the tenant-scope
   assert.match(seed, /"organizationId", "createdAt", "updatedAt", "userId"/);
   assert.match(seed, /ON CONFLICT \("organizationId", slug\)/);
 });
+
+test('Compose keeps the fixed-code demo login opt-in and isolates the runner network', () => {
+  const compose = fs.readFileSync(path.join(__dirname, '..', 'docker-compose.yml'), 'utf8');
+  const envExample = fs.readFileSync(path.join(__dirname, '..', '.env.example'), 'utf8');
+  const appStart = compose.indexOf('\n  app:\n');
+  const runnerStart = compose.indexOf('\n  python-runner:\n');
+  const schemaStart = compose.indexOf('\n  schema-init:\n');
+  const app = compose.slice(appStart, runnerStart);
+  const runner = compose.slice(runnerStart, schemaStart);
+
+  assert.match(app, /DEMO_LOGIN_ENABLED:\s*\$\{DEMO_LOGIN_ENABLED:-false\}/);
+  assert.match(envExample, /^DEMO_LOGIN_ENABLED=false$/m);
+  assert.match(app, /networks:\n\s+- default\n\s+- runner-isolated/);
+  assert.match(runner, /networks:\n\s+- runner-isolated/);
+  assert.match(compose, /runner-isolated:\n\s+internal: true/);
+});
+
+test('CI validates the runner and sandbox image builds', () => {
+  const workflow = fs.readFileSync(path.join(__dirname, '..', '.github/workflows/ci.yml'), 'utf8');
+  assert.match(workflow, /docker compose --profile build-image build python-runner python-sandbox-image/);
+});

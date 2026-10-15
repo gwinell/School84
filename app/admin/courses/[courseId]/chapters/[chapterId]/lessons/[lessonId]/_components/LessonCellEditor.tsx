@@ -51,6 +51,32 @@ function parseJsonList(value: unknown) {
   return JSON.stringify(Array.isArray(value) ? value : [], null, 2);
 }
 
+type CodeLanguage = "python" | "javascript";
+
+function readLintConfig(value: unknown): { language: CodeLanguage; linters: string[]; checkerCode: string } {
+  const fallback = { language: "python" as const, linters: ["ruff"], checkerCode: "" };
+  if (!value || typeof value !== "object" || Array.isArray(value)) return fallback;
+  const config = value as Record<string, unknown>;
+
+  // Older courses stored a language-keyed map, for example { python: ["ruff"] }.
+  if (config.language !== "python" && config.language !== "javascript") {
+    const legacyLanguage = Object.keys(config).find((key) => key === "python" || key === "javascript") as CodeLanguage | undefined;
+    if (!legacyLanguage) return fallback;
+    const legacyLinters = config[legacyLanguage];
+    return {
+      language: legacyLanguage,
+      linters: Array.isArray(legacyLinters) ? legacyLinters.filter((name): name is string => typeof name === "string") : (legacyLanguage === "python" ? ["ruff"] : []),
+      checkerCode: typeof config.checkerCode === "string" ? config.checkerCode : "",
+    };
+  }
+
+  return {
+    language: config.language,
+    linters: Array.isArray(config.linters) ? config.linters.filter((name): name is string => typeof name === "string") : (config.language === "python" ? ["ruff"] : []),
+    checkerCode: typeof config.checkerCode === "string" ? config.checkerCode : "",
+  };
+}
+
 export function LessonCellEditor({
   courseId,
   chapterId,
@@ -150,6 +176,7 @@ export function LessonCellEditor({
         return;
       }
       setCells((previous) => previous.map((cell) => cell.id === active.id ? { ...cell, type } : cell));
+      router.refresh();
       toast.success(`Тип ячейки: ${cellTypeLabels[type]}`);
     });
   }
@@ -331,18 +358,25 @@ function CellContentEditor({
   const [starterCode, setStarterCode] = useState(cell.starterCode ?? "");
   const [examples, setExamples] = useState(parseJsonList(cell.examples));
   const [testCases, setTestCases] = useState(parseJsonList(cell.testCases));
-  const [lintConfig, setLintConfig] = useState(JSON.stringify(cell.lintConfig ?? { python: ["ruff"] }, null, 2));
+  const initialLintConfig = readLintConfig(cell.lintConfig);
+  const [codeLanguage, setCodeLanguage] = useState<CodeLanguage>(initialLintConfig.language);
+  const [linters, setLinters] = useState<string[]>(initialLintConfig.linters);
+  const [checkerCode, setCheckerCode] = useState(initialLintConfig.checkerCode);
   const [jsonError, setJsonError] = useState("");
 
   function save() {
     try {
       const parsedExamples: unknown = JSON.parse(examples || "[]");
       const parsedTests: unknown = JSON.parse(testCases || "[]");
-      const parsedLint: unknown = JSON.parse(lintConfig || "{}");
-      if (!Array.isArray(parsedExamples) || !Array.isArray(parsedTests) || !parsedLint || typeof parsedLint !== "object" || Array.isArray(parsedLint)) {
-        throw new Error("Проверьте JSON: ожидался список примеров/тестов и объект линтера.");
+      if (!Array.isArray(parsedExamples) || !Array.isArray(parsedTests)) {
+        throw new Error("Проверьте JSON: ожидался список примеров и тестов.");
       }
       setJsonError("");
+      const savedLintConfig: Prisma.JsonObject = {
+        language: codeLanguage,
+        linters,
+        ...(checkerCode.trim() ? { checkerCode } : {}),
+      };
       onSave({
         type: cell.type,
         title: title.trim() || null,
@@ -351,10 +385,10 @@ function CellContentEditor({
         starterCode: cell.type === "CODE_TASK" ? starterCode : null,
         examples: parsedExamples,
         testCases: parsedTests,
-        lintConfig: parsedLint as unknown as Prisma.JsonObject,
+        lintConfig: savedLintConfig,
       });
     } catch {
-      setJsonError("Проверьте JSON в примерах, тестах и настройках линтера.");
+      setJsonError("Проверьте JSON в примерах и автотестах.");
     }
   }
 
@@ -376,11 +410,63 @@ function CellContentEditor({
         <div className="space-y-4">
           <label className="block space-y-2"><span className="text-sm font-medium">Условие задачи</span><Textarea value={taskPrompt} onChange={(event) => setTaskPrompt(event.target.value)} className="min-h-32" placeholder="Опишите, что должна сделать программа." /></label>
           <label className="block space-y-2"><span className="text-sm font-medium">Стартовый код</span><Textarea value={starterCode} onChange={(event) => setStarterCode(event.target.value)} className="min-h-36 font-mono text-sm" placeholder="# Код, который увидит ученик" /></label>
-          <div className="grid gap-4 lg:grid-cols-3">
+          <div className="grid gap-4 lg:grid-cols-2">
             <JsonField label="Примеры ввода/вывода" value={examples} onChange={setExamples} />
             <JsonField label="Автотесты" value={testCases} onChange={setTestCases} />
-            <JsonField label="Настройки линтера" value={lintConfig} onChange={setLintConfig} />
           </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <label className="block space-y-2">
+              <span className="text-sm font-medium">Язык решения</span>
+              <select
+                aria-label="Язык решения"
+                value={codeLanguage}
+                onChange={(event) => {
+                  const language = event.target.value as CodeLanguage;
+                  setCodeLanguage(language);
+                  setLinters(language === "python" ? ["ruff"] : ["eslint"]);
+                }}
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="python">Python</option>
+                <option value="javascript">JavaScript</option>
+              </select>
+            </label>
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-medium">Линтеры</legend>
+              <label className="flex min-h-10 items-center gap-2 rounded-md border px-3 text-sm">
+                <input
+                  type="checkbox"
+                  aria-label={codeLanguage === "python" ? "Ruff" : "ESLint"}
+                  checked={linters.includes(codeLanguage === "python" ? "ruff" : "eslint")}
+                  onChange={(event) => {
+                    const linter = codeLanguage === "python" ? "ruff" : "eslint";
+                    setLinters((current) => event.target.checked
+                      ? [...new Set([...current, linter])]
+                      : current.filter((name) => name !== linter));
+                  }}
+                />
+                {codeLanguage === "python" ? "Ruff" : "ESLint"}
+              </label>
+            </fieldset>
+          </div>
+          <label className="block space-y-2">
+            <span className="text-sm font-medium">Дополнительный код автопроверки</span>
+            <Textarea
+              aria-label="Код дополнительной автопроверки"
+              value={checkerCode}
+              onChange={(event) => setCheckerCode(event.target.value)}
+              className="min-h-48 font-mono text-sm"
+              spellCheck={false}
+              placeholder={codeLanguage === "python" ? "# Необязательная дополнительная проверка на Python" : "// Необязательная дополнительная проверка на JavaScript"}
+            />
+            <span className="block text-xs text-muted-foreground">
+              Контракт: <code>{codeLanguage === "python"
+                ? "def check(input_text, expected_output, actual_output, source_code):"
+                : "function check({input, expectedOutput, actualOutput, sourceCode})"}</code>
+              <br />Верните true/false или пустую/непустую строку с сообщением об отказе.
+            </span>
+            <span className="block text-xs text-muted-foreground">Код хранится вместе с языком и линтерами в настройках задачи.</span>
+          </label>
           <p className="text-xs text-muted-foreground">Пример записи: [{`{"input":"2 3\\n","output":"5\\n"}`}]. Автотесты и проверка кода выполняются сервером.</p>
           {jsonError ? <p role="alert" className="text-sm text-destructive">{jsonError}</p> : null}
         </div>

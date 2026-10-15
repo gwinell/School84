@@ -154,6 +154,7 @@ test('teacher course cards identify their school and open its tenant-specific co
   const courses = [{ id: 'course-a', title: 'Алгебра', slug: 'algebra', status: 'PUBLISHED', organization: { id: 'school-a', name: 'Лицей 5', slug: 'lyceum-5', logoUrl: '/lyceum.svg', primaryColor: '#123456' } }];
   const h = load('app/teacher/page.tsx', {
     '@/app/data/teacher/get-course-gradebook': { adminGetTeachingCourses: async () => courses },
+    '@/app/data/organization/actions': { getMyOrganizations: async () => [] },
     '@/components/brand': { Brand: 'Brand' },
   });
   const tree = await h.render('default', {});

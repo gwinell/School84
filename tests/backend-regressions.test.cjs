@@ -174,7 +174,7 @@ test('upload route exports only its supported Next.js handler', () => {
 test('upload route rejects invalid bodies before creating an S3 upload or pending record', async () => {
   const upload = uploadRoute();
   const valid = { fileName: 'cover.png', contentType: 'image/png', size: 42, isImage: true };
-  for (const body of [null, {}, { ...valid, fileName: '' }, { ...valid, contentType: '' }, { ...valid, size: 0 }, { ...valid, size: '42' }, { ...valid, isImage: 'true' }]) {
+  for (const body of [null, {}, { ...valid, fileName: '' }, { ...valid, contentType: '' }, { ...valid, size: 0 }, { ...valid, size: '42' }, { ...valid, size: 100 * 1024 * 1024 + 1 }, { ...valid, isImage: 'true' }]) {
     const response = await upload.subject.POST({ json: async () => body });
     assert.equal(response.status, 400);
     assert.equal(typeof response.body.error, 'string');
@@ -187,6 +187,17 @@ test('upload route still signs valid uploads and records their owner', async () 
   assert.equal(response.status, 200); assert.equal(response.body.key, 'upload-id-cover.png'); assert.equal(response.body.presignedUrl, 'signed:upload');
   assert.equal(upload.commands(), 1); assert.equal(upload.signatures(), 1); assert.equal(upload.writes.length, 1);
   assert.equal(upload.writes[0].create.userId, 'admin'); assert.equal(upload.writes[0].create.key, response.body.key);
+});
+test('upload route bounds metadata bytes before parsing or creating objects', async () => {
+  const upload = uploadRoute();
+  const request = new Request('http://localhost/api/s3/upload', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ fileName: 'x'.repeat(10_000), contentType: 'image/png', size: 42 }),
+  });
+  const response = await upload.subject.POST(request);
+  assert.equal(response.status, 413);
+  assert.equal(upload.commands(), 0); assert.equal(upload.signatures(), 0); assert.equal(upload.writes.length, 0);
 });
 test('failed S3 discard retains the pending retry record', async () => {
   const s = s3(true); await assert.rejects(s.module.discardUpload('orphan', 'student'), /S3 unavailable/); assert.equal(s.recordsRemoved(), 0);

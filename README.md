@@ -20,8 +20,8 @@ SchoolSphere is the School84 fork of [KnowSphere](https://github.com/billalben/K
 ## What you can do
 
 - **School owners and administrators** create a school, invite staff and learners, manage courses, assign students, and review progress.
-- **Teachers** author lessons and assessments, manage assigned course rosters, set due dates, and review submissions with feedback.
-- **Learners** follow assigned courses, complete quizzes and Python exercises, see feedback and progress, and resume where they left off.
+- **Teachers** author lessons and assessments, manage assigned course rosters, set due dates, review submissions, and import/export portable course packages.
+- **Learners** follow assigned courses, complete quizzes and Python or JavaScript exercises, see feedback and progress, and resume where they left off.
 - **Independent schools** share one installation while keeping course catalogs, membership, and learning access scoped to each school. The same course slug can exist in different schools.
 
 | Role | Access |
@@ -50,7 +50,7 @@ docker compose up --build -d app python-runner
 docker compose --profile local-admin run --rm local-admin
 ```
 
-Open [http://localhost:3001](http://localhost:3001). In the local Docker profile, use **Войти как преподаватель** or **Войти как ученик** for the seeded demo accounts. The demo OTP is `840084`; this shortcut is for local evaluation only. The learner account includes a sample Python course and progress.
+Open [http://localhost:3001](http://localhost:3001). The fixed-code demo login is disabled by default. To enable the local-only **Войти как преподаватель** / **Войти как ученик** shortcuts, set `DEMO_LOGIN_ENABLED=true` in `.env` and restart the app with `docker compose up -d app`. The demo OTP is `840084`; use this shortcut only for local evaluation. The learner account includes a sample Python course and progress.
 
 The app and runner are intended for a trusted local host. The runner uses the Docker socket to start restricted containers; keep services bound to loopback and do not expose this demo configuration to the public internet. To stop the stack without deleting its database:
 
@@ -59,6 +59,8 @@ docker compose down
 ```
 
 For manual Node.js setup, environment configuration, demo curriculum import, backup/restore, and safe application updates, see [Local Development and Operations](docs/LOCAL_DEVELOPMENT.md).
+
+Course authors can import or export `.s84course` bundles from the teacher area. The package manifest, media layout, Python/JavaScript checkers, and optional progress file are documented in the [Course Package Format](docs/COURSE_PACKAGE_FORMAT.md).
 
 ## Technology
 

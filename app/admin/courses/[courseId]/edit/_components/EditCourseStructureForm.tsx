@@ -77,6 +77,7 @@ export function EditCourseStructureForm({
 
   function reorder(from: number, to: number) {
     if (from === to) return;
+    const previous = chapters;
     const next = [...chapters];
     const [item] = next.splice(from, 1);
     next.splice(to, 0, item);
@@ -92,6 +93,7 @@ export function EditCourseStructureForm({
         }),
       );
       if (error || data?.status === "error") {
+        setChapters(previous);
         toast.error(data?.status === "error" ? data.message : "Не удалось изменить порядок глав");
       }
     });

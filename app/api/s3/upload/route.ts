@@ -11,15 +11,16 @@ import { canAccessUploadCourse } from "@/app/api/s3/course-access";
 import prisma from "@/lib/prisma";
 
 const fileUploadSchema = z.object({
-  fileName: z.string().min(1, { message: "File name is required" }),
-  contentType: z.string().min(1, { message: "Content type is required" }),
-  size: z.number().min(1, { message: "Size is required" }),
+  fileName: z.string().min(1, { message: "File name is required" }).max(255),
+  contentType: z.string().min(1, { message: "Content type is required" }).max(100),
+  size: z.number().int().min(1, { message: "Size is required" }).max(100 * 1024 * 1024),
   isImage: z.boolean().optional(),
   courseId: z.string().min(1).optional(),
 });
 
 const MAX_IMAGE_BYTES = 3 * 1024 * 1024; // 3MB
 const MAX_VIDEO_BYTES = 100 * 1024 * 1024; // 100MB
+const MAX_UPLOAD_METADATA_BYTES = 8 * 1024;
 
 const IMAGE_CONTENT_TYPES = new Set([
   "image/png",
@@ -73,7 +74,43 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Too many requests" }, { status: 429 });
     }
 
-    const body = await request.json();
+    const contentLength = Number(request.headers?.get?.("content-length"));
+    if (Number.isFinite(contentLength) && contentLength > MAX_UPLOAD_METADATA_BYTES) {
+      return NextResponse.json({ error: "Upload metadata is too large" }, { status: 413 });
+    }
+
+    let body: unknown;
+    if (request.body) {
+      const reader = request.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let totalBytes = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        totalBytes += value.byteLength;
+        if (totalBytes > MAX_UPLOAD_METADATA_BYTES) {
+          await reader.cancel();
+          return NextResponse.json({ error: "Upload metadata is too large" }, { status: 413 });
+        }
+        chunks.push(value);
+      }
+      const bytes = new Uint8Array(totalBytes);
+      let offset = 0;
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      try {
+        body = JSON.parse(new TextDecoder().decode(bytes));
+      } catch {
+        return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+      }
+    } else if (typeof request.json === "function") {
+      // Non-Request mocks in regression tests use this compatibility path.
+      body = await request.json();
+    } else {
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    }
 
     const validation = fileUploadSchema.safeParse(body);
 

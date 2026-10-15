@@ -96,13 +96,24 @@ export async function submitCodeTaskAction(input: unknown): Promise<tApiResponse
   if (tests.length === 0) return errorResponse("Для этой задачи пока не настроены тесты", null);
   if (tests.length > 12) return errorResponse("В задаче слишком много тестов для безопасного запуска", null);
 
-  const configuredLinters = cell.lintConfig && typeof cell.lintConfig === "object" && !Array.isArray(cell.lintConfig)
-    ? (cell.lintConfig as { python?: unknown }).python
-    : undefined;
-  if (Array.isArray(configuredLinters) && configuredLinters.some((name) => name !== "ruff")) {
-    return errorResponse("Сейчас поддерживается линтер Ruff для Python", null);
+  const lintConfig = cell.lintConfig && typeof cell.lintConfig === "object" && !Array.isArray(cell.lintConfig)
+    ? cell.lintConfig as { language?: unknown; linters?: unknown; checkerCode?: unknown; python?: unknown }
+    : null;
+  const legacyPythonLinters = lintConfig?.language === undefined ? lintConfig?.python : undefined;
+  const language = lintConfig?.language === "javascript" ? "javascript" : "python";
+  if (lintConfig?.language !== undefined && lintConfig.language !== "python" && lintConfig.language !== "javascript") {
+    return errorResponse("Для задачи указан неподдерживаемый язык", null);
   }
-  const lintEnabled = configuredLinters === undefined || (Array.isArray(configuredLinters) && configuredLinters.includes("ruff"));
+  const configuredLinters = lintConfig?.linters ?? legacyPythonLinters;
+  const allowedLinter = language === "python" ? "ruff" : "eslint";
+  if (configuredLinters !== undefined && (!Array.isArray(configuredLinters) || configuredLinters.some((name) => name !== allowedLinter))) {
+    return errorResponse(language === "python" ? "Сейчас поддерживается линтер Ruff для Python" : "Сейчас поддерживается линтер ESLint для JavaScript", null);
+  }
+  const lintEnabled = configuredLinters === undefined || configuredLinters.includes(allowedLinter);
+  const checkerCode = lintConfig?.checkerCode;
+  if (checkerCode !== undefined && (typeof checkerCode !== "string" || checkerCode.length > 30_000)) {
+    return errorResponse("Дополнительная проверка слишком большая или имеет неверный формат", null);
+  }
 
   // Reserve admission before invoking Docker. The transaction-scoped advisory
   // lock serializes admission across every app instance for this account.
@@ -134,7 +145,7 @@ export async function submitCodeTaskAction(input: unknown): Promise<tApiResponse
         "content-type": "application/json",
         authorization: `Bearer ${env.PYTHON_RUNNER_TOKEN}`,
       },
-      body: JSON.stringify({ code: parsed.data.sourceCode, tests, lint: lintEnabled }),
+      body: JSON.stringify({ language, code: parsed.data.sourceCode, tests, lint: lintEnabled, ...(typeof checkerCode === "string" ? { checkerCode } : {}) }),
       signal: AbortSignal.timeout(60_000),
       cache: "no-store",
     });

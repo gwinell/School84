@@ -42,7 +42,7 @@ services:
       ARCJET_KEY: ${ARCJET_KEY:-local-arcjet-key}
       ARCJET_ENABLED: ${ARCJET_ENABLED:-false}
       AUTH_EMAIL_MODE: ${AUTH_EMAIL_MODE:-console}
-      DEMO_LOGIN_ENABLED: ${DEMO_LOGIN_ENABLED:-true}
+      DEMO_LOGIN_ENABLED: ${DEMO_LOGIN_ENABLED:-false}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-local}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-local-secret}
       AWS_ENDPOINT_URL_S3: ${AWS_ENDPOINT_URL_S3:-http://host.docker.internal:9000}
@@ -61,6 +61,9 @@ services:
     pids_limit: 256
     mem_limit: 768m
     cpus: 2.0
+    networks:
+      - default
+      - runner-isolated
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/login').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 10s
@@ -86,6 +89,8 @@ services:
     pids_limit: 128
     mem_limit: 256m
     cpus: 1.0
+    networks:
+      - runner-isolated
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
       interval: 10s
@@ -133,3 +138,7 @@ services:
 
 volumes:
   school84-db:
+
+networks:
+  runner-isolated:
+    internal: true

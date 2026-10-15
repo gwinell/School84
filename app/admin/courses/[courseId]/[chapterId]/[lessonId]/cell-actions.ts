@@ -189,6 +189,9 @@ export async function updateLessonCell({
       if (cell.type === "QUIZ" && parsed.data.type !== "QUIZ") {
         await tx.quiz.deleteMany({ where: { cellId } });
       }
+      if (cell.type !== "QUIZ" && parsed.data.type === "QUIZ") {
+        await tx.quiz.create({ data: { cellId } });
+      }
       const content = parsed.data;
       await tx.lessonCell.update({
         where: { id: cellId },
