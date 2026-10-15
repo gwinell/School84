@@ -13,12 +13,17 @@ import {
   removeOrganizationMember,
   updateOrganizationMemberRole,
 } from "@/app/data/organization/actions";
+import * as organizationActions from "@/app/data/organization/actions";
 
 type OrganizationRole = "OWNER" | "ADMIN" | "TEACHER" | "STUDENT";
 type InviteRole = Exclude<OrganizationRole, "OWNER">;
 type Member = { role: OrganizationRole; createdAt: Date; user: { id: string; name: string; email: string } };
 type School = { id: string; name: string; slug: string; logoUrl: string | null; primaryColor: string | null; role: OrganizationRole; members: Member[] };
+type SchoolBrand = Pick<School, "name" | "slug" | "logoUrl" | "primaryColor">;
 type InviteShare = { schoolName: string; email: string; role: InviteRole; url: string };
+const updateOrganizationBranding = (organizationActions as unknown as {
+  updateOrganizationBranding(input: { organizationId: string } & SchoolBrand): Promise<{ status: "success" | "error"; message?: string }>;
+}).updateOrganizationBranding;
 
 const ROLE_LABEL: Record<OrganizationRole, string> = {
   OWNER: "Владелец",
@@ -33,6 +38,61 @@ export function SchoolManagement({ schools }: { schools: School[] }) {
   const [emailBySchool, setEmailBySchool] = useState<Record<string, string>>({});
   const [roleBySchool, setRoleBySchool] = useState<Record<string, InviteRole>>({});
   const [inviteShare, setInviteShare] = useState<InviteShare | null>(null);
+  const [brandBySchool, setBrandBySchool] = useState<Record<string, SchoolBrand>>({});
+  const [brandingDraftBySchool, setBrandingDraftBySchool] = useState<Record<string, SchoolBrand>>({});
+
+  function getBrand(school: School): SchoolBrand {
+    return brandBySchool[school.id] ?? school;
+  }
+
+  function getBrandDraft(school: School): SchoolBrand {
+    return brandingDraftBySchool[school.id] ?? getBrand(school);
+  }
+
+  function editBrand(school: School, field: keyof SchoolBrand, value: string) {
+    setBrandingDraftBySchool((current) => ({
+      ...current,
+      [school.id]: { ...getBrandDraft(school), [field]: value || (field === "logoUrl" || field === "primaryColor" ? null : "") },
+    }));
+  }
+
+  function saveBranding(event: React.FormEvent<HTMLFormElement>, school: School) {
+    event.preventDefault();
+    const draft = getBrandDraft(school);
+    const name = draft.name.trim();
+    const slug = draft.slug.trim().toLowerCase();
+    const logoUrl = draft.logoUrl?.trim() || null;
+    const primaryColor = draft.primaryColor?.trim() || null;
+    if (name.length < 2 || name.length > 100) return toast.error("Название должно содержать от 2 до 100 символов");
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return toast.error("Адрес школы должен содержать латинские буквы, цифры и дефисы");
+    if (logoUrl) {
+      try {
+        if (new URL(logoUrl).protocol !== "https:") return toast.error("Ссылка на логотип должна начинаться с HTTPS");
+      } catch {
+        return toast.error("Укажите корректную HTTPS-ссылку на логотип");
+      }
+    }
+    if (primaryColor && !/^#[0-9a-fA-F]{6}$/.test(primaryColor)) return toast.error("Цвет должен быть в формате #RRGGBB");
+
+    const previous = getBrand(school);
+    const updated: SchoolBrand = { name, slug, logoUrl, primaryColor };
+    setBrandBySchool((current) => ({ ...current, [school.id]: updated }));
+    setBrandingDraftBySchool((current) => ({ ...current, [school.id]: updated }));
+    startTransition(async () => {
+      try {
+        const result = await updateOrganizationBranding({ organizationId: school.id, ...updated });
+        if (result.status === "error") {
+          setBrandBySchool((current) => ({ ...current, [school.id]: previous }));
+          toast.error(result.message);
+          return;
+        }
+        toast.success("Оформление школы сохранено");
+      } catch {
+        setBrandBySchool((current) => ({ ...current, [school.id]: previous }));
+        toast.error("Не удалось сохранить оформление школы. Проверьте соединение и попробуйте снова.");
+      }
+    });
+  }
 
   function createSchool(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -115,20 +175,43 @@ export function SchoolManagement({ schools }: { schools: School[] }) {
       {schools.map((school) => {
         const canManage = school.role === "OWNER" || school.role === "ADMIN";
         const isOwner = school.role === "OWNER";
+        const brand = getBrand(school);
+        const brandDraft = getBrandDraft(school);
         return (
           <section key={school.id} className="space-y-4 rounded-lg border p-4">
             <header className="flex flex-wrap items-center justify-between gap-3">
               <div className="space-y-1">
-                <Brand brand={school} nameClassName="text-lg" markClassName="size-8" />
-                <p className="text-sm text-muted-foreground">/{school.slug} · {ROLE_LABEL[school.role]}</p>
+                <Brand brand={brand} nameClassName="text-lg" markClassName="size-8" />
+                <p className="text-sm text-muted-foreground">/{brand.slug} · {ROLE_LABEL[school.role]}</p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button nativeButton={false} variant="outline" render={<Link href={`/schools/${encodeURIComponent(school.slug)}/courses`} />}>
+                <Button nativeButton={false} variant="outline" render={<Link href={`/schools/${encodeURIComponent(brand.slug)}/courses`} />}>
                   Курсы школы<ArrowUpRightIcon aria-hidden />
                 </Button>
                 {canManage ? <Button nativeButton={false} variant="outline" render={<Link href="/teacher/courses/new" />}>Создать курс</Button> : null}
               </div>
             </header>
+
+            {canManage ? (
+              <form onSubmit={(event) => saveBranding(event, school)} className="space-y-3 rounded-md border bg-background p-3">
+                <h3 className="font-medium">Оформление и адрес школы</h3>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label className="space-y-1.5 text-sm font-medium" htmlFor={`school-name-${school.id}`}>Название
+                    <Input id={`school-name-${school.id}`} required minLength={2} maxLength={100} value={brandDraft.name} onChange={(event) => editBrand(school, "name", event.target.value)} />
+                  </label>
+                  <label className="space-y-1.5 text-sm font-medium" htmlFor={`school-slug-${school.id}`}>Публичный адрес
+                    <Input id={`school-slug-${school.id}`} required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" value={brandDraft.slug} onChange={(event) => editBrand(school, "slug", event.target.value)} />
+                  </label>
+                  <label className="space-y-1.5 text-sm font-medium" htmlFor={`school-logo-${school.id}`}>HTTPS-ссылка на логотип
+                    <Input id={`school-logo-${school.id}`} type="url" placeholder="https://example.org/logo.png" value={brandDraft.logoUrl ?? ""} onChange={(event) => editBrand(school, "logoUrl", event.target.value)} />
+                  </label>
+                  <label className="space-y-1.5 text-sm font-medium" htmlFor={`school-color-${school.id}`}>Основной цвет (#RRGGBB)
+                    <div className="flex gap-2"><Input id={`school-color-${school.id}`} type="text" pattern="#[0-9a-fA-F]{6}" placeholder="#3157A4" value={brandDraft.primaryColor ?? ""} onChange={(event) => editBrand(school, "primaryColor", event.target.value)} /><span aria-hidden="true" className="size-9 shrink-0 rounded-md border" style={{ backgroundColor: /^#[0-9a-fA-F]{6}$/.test(brandDraft.primaryColor ?? "") ? brandDraft.primaryColor! : "transparent" }} /></div>
+                  </label>
+                </div>
+                <Button type="submit" disabled={isPending}>Сохранить оформление</Button>
+              </form>
+            ) : null}
 
             {canManage ? (
               <form onSubmit={(event) => { event.preventDefault(); invite(school); }} className="flex flex-wrap items-end gap-3 rounded-md bg-muted/40 p-3">
