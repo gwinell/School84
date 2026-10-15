@@ -5,11 +5,11 @@ import { COURSE_PACKAGE_MAX_ARCHIVE_BYTES } from "@/lib/course-package/archive";
 import { fetchGithubCourseBundle, githubRawBundleUrl } from "@/lib/course-package/github-source";
 import { importCoursePackage } from "@/lib/course-package/service";
 import arcjet, { fixedWindow } from "@/lib/arcjet";
+import { acquireCoursePackageImportSlot, coursePackageGlobalRateLimit } from "@/lib/course-package/import-admission";
 import prisma from "@/lib/prisma";
 
 const MAX_MULTIPART_BYTES = COURSE_PACKAGE_MAX_ARCHIVE_BYTES + 1024 * 1024;
 const importRateLimit = arcjet.withRule(fixedWindow({ mode: "LIVE", window: "10m", max: 3 }));
-const activeImports = new Set<string>();
 
 async function readBoundedFormData(request: Request): Promise<FormData> {
   const contentLength = request.headers.get("content-length");
@@ -55,10 +55,12 @@ async function getPersonalOrganization(userId: string) {
 
 export async function POST(request: Request) {
   const session = await requireUser();
+  const globalDecision = await coursePackageGlobalRateLimit.protect(request, { fingerprint: "course-package-imports" });
+  if (globalDecision.isDenied()) return NextResponse.json({ error: "Общий лимит импорта исчерпан. Повторите позже." }, { status: 429 });
   const decision = await importRateLimit.protect(request, { fingerprint: session.user.id });
   if (decision.isDenied()) return NextResponse.json({ error: "Лимит импорта исчерпан. Повторите позже." }, { status: 429 });
-  if (activeImports.has(session.user.id)) return NextResponse.json({ error: "Импорт курса уже выполняется. Повторите позже." }, { status: 429 });
-  activeImports.add(session.user.id);
+  const releaseImportSlot = acquireCoursePackageImportSlot();
+  if (!releaseImportSlot) return NextResponse.json({ error: "Импорт уже выполняется. Повторите позже." }, { status: 429 });
 
   try {
     if (!request.headers.get("content-type")?.toLowerCase().startsWith("multipart/form-data;")) {
@@ -97,6 +99,6 @@ export async function POST(request: Request) {
     console.error("Personal course package import failed", error);
     return NextResponse.json({ error: "Не удалось импортировать курс. Проверьте формат пакета." }, { status: 400 });
   } finally {
-    activeImports.delete(session.user.id);
+    releaseImportSlot();
   }
 }

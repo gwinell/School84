@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import arcjet, { fixedWindow } from "@/lib/arcjet";
+import { acquireCoursePackageImportSlot, coursePackageGlobalRateLimit } from "@/lib/course-package/import-admission";
 
 import { requireTeacher } from "@/app/data/teacher/require-teacher";
 import prisma from "@/lib/prisma";
@@ -10,7 +11,6 @@ import { importCoursePackage } from "@/lib/course-package/service";
 
 const MAX_MULTIPART_BYTES = COURSE_PACKAGE_MAX_ARCHIVE_BYTES + 1024 * 1024;
 const organizationSchema = z.string().cuid();
-const activeImports = new Set<string>();
 const importRateLimit = arcjet.withRule(fixedWindow({ mode: "LIVE", window: "10m", max: 3 }));
 
 async function readBoundedFormData(request: Request, limit: number): Promise<FormData> {
@@ -57,10 +57,12 @@ async function canAuthorInOrganization(input: { organizationId: string; userId: 
 
 export async function POST(request: Request) {
   const session = await requireTeacher();
+  const globalDecision = await coursePackageGlobalRateLimit.protect(request, { fingerprint: "course-package-imports" });
+  if (globalDecision.isDenied()) return NextResponse.json({ error: "Общий лимит импорта исчерпан. Повторите позже." }, { status: 429 });
   const decision = await importRateLimit.protect(request, { fingerprint: session.user.id });
   if (decision.isDenied()) return NextResponse.json({ error: "Лимит импорта исчерпан. Повторите позже." }, { status: 429 });
-  if (activeImports.has(session.user.id)) return NextResponse.json({ error: "Ваш импорт курса уже выполняется. Повторите позже." }, { status: 429 });
-  activeImports.add(session.user.id);
+  const releaseImportSlot = acquireCoursePackageImportSlot();
+  if (!releaseImportSlot) return NextResponse.json({ error: "Импорт уже выполняется. Повторите позже." }, { status: 429 });
   try {
     if (!request.headers.get("content-type")?.toLowerCase().startsWith("multipart/form-data;")) {
       return NextResponse.json({ error: "Ожидается multipart/form-data" }, { status: 415 });
@@ -106,6 +108,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Не удалось импортировать курс. Проверьте формат пакета, права и настройки организации." }, { status: 400 });
     }
   } finally {
-    activeImports.delete(session.user.id);
+    releaseImportSlot();
   }
 }
